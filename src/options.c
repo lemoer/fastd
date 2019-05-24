@@ -146,6 +146,16 @@ static void option_config_peer_dir(const char *arg) {
 	fastd_config_add_peer_dir(conf.peer_group, arg);
 }
 
+static void option_config_bufcnt(const char *arg) {
+	char *endptr;
+	long bufcnt = strtol(arg, &endptr, 10);
+
+	if (*endptr || bufcnt < 1 || bufcnt > MAX_BUFCNT)
+		exit_error("invalid bufcnt `%s'", arg);
+
+	conf.bufcnt = bufcnt;
+}
+
 
 #ifdef WITH_CMDLINE_USER
 

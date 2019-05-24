@@ -453,22 +453,67 @@ static void cleanup_iface(UNUSED fastd_iface_t *iface) {
 void fastd_iface_handle(fastd_iface_t *iface) {
 	size_t max_len = fastd_max_payload(iface->mtu);
 
-	fastd_buffer_t buffer;
-	if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN)
-		buffer = fastd_buffer_alloc(max_len+4, conf.min_encrypt_head_space+12, conf.min_encrypt_tail_space);
-	else
-		buffer = fastd_buffer_alloc(max_len, conf.min_encrypt_head_space, conf.min_encrypt_tail_space);
+	if (conf.bufcnt > 1) {
+		ssize_t count;
+		fastd_buffer_t buffer[MAX_BUFCNT] = {};
+		struct mmsghdr mmsg[MAX_BUFCNT] = {}; // not initializing this causes kernel crash as msg_control doesnt seem to be sanitized
+		struct iovec io[MAX_BUFCNT] = {};
 
-	ssize_t len = read(iface->fd.fd, buffer.data, max_len);
-	if (len < 0)
-		exit_errno("read");
+		struct timespec timeout = {
+			.tv_sec = 1,
+			.tv_nsec = 0
+		};
 
-	buffer.len = len;
+		for (int i = 0; i < conf.bufcnt; i++) {
+			if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN)
+				buffer[i] = fastd_buffer_alloc(max_len+4, conf.min_encrypt_head_space+12, conf.min_encrypt_tail_space);
+			else
+				buffer[i] = fastd_buffer_alloc(max_len, conf.min_encrypt_head_space, conf.min_encrypt_tail_space);
+			io[i].iov_base = buffer[i].data;
+			io[i].iov_len = max_len;
 
-	if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN)
-		fastd_buffer_push_head(&buffer, 4);
+			mmsg[i].msg_hdr.msg_iov = &io[i];
+			mmsg[i].msg_hdr.msg_iovlen = 1;
+		}
 
-	fastd_send_data(buffer, NULL, iface->peer);
+		count = recvmmsg(iface->fd.fd, mmsg, conf.bufcnt, MSG_WAITFORONE, &timeout);
+
+		if (count < 0)
+			exit_errno("recvmmsg");
+
+		for (int i = 0; i < conf.bufcnt; i++) {
+			if (i >= count) {
+				fastd_buffer_free(buffer[i]);
+				continue;
+			}
+
+			buffer[i].len = mmsg[i].msg_len;
+
+			if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN)
+				fastd_buffer_push_head(&buffer[i], 4);
+
+			fastd_send_data(buffer[i], NULL, iface->peer);
+		}
+	} else {
+		fastd_buffer_t buffer;
+
+		if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN)
+			buffer = fastd_buffer_alloc(max_len+4, conf.min_encrypt_head_space+12, conf.min_encrypt_tail_space);
+		else
+			buffer = fastd_buffer_alloc(max_len, conf.min_encrypt_head_space, conf.min_encrypt_tail_space);
+
+		ssize_t len = read(iface->fd.fd, buffer.data, max_len);
+
+		if (len < 0)
+			exit_errno("read");
+
+		buffer.len = len;
+
+		if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN)
+			fastd_buffer_push_head(&buffer, 4);
+
+		fastd_send_data(buffer, NULL, iface->peer);
+	}
 }
 
 /** Writes a packet to the TUN/TAP device */

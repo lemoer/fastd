@@ -30,6 +30,7 @@ SEPARATOR;
 #ifdef WITH_CMDLINE_OPERATION
 OPTION_ARG(option_mode, "--mode" OR "-m", "tap|multitap|tun", "Sets the mode of operation");
 OPTION_ARG(option_interface, "--interface" OR "-i", "<name>", "Sets the name of the TUN/TAP interface to use");
+OPTION_ARG(option_config_bufcnt, "--bufcnt", "<CNT>", "Set the amount of buffers used to send and receive.");
 OPTION_ARG(option_mtu, "--mtu" OR "-M", "<mtu>", "Sets the MTU; must be at least 576");
 OPTION_ARG(option_bind, "--bind" OR "-b", "<address>[:<port>]", "Sets the bind address");
 OPTION_ARG(option_protocol, "--protocol" OR "-p", "<protocol>", "Sets the protocol");

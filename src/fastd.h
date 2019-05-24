@@ -274,6 +274,8 @@ struct fastd_config {
 	bool generate_key;			/**< Makes fastd generate a new keypair and exit */
 	bool show_key;				/**< Makes fastd output the public key for the configured secret and exit */
 	bool verify_config;			/**< Does basic verification of the configuration and exits */
+
+	size_t bufcnt;
 };
 
 

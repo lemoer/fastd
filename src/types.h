@@ -41,6 +41,7 @@
 /** Annotation for unused function parameters */
 #define UNUSED __attribute__((unused))
 
+#define MAX_BUFCNT 64
 
 /** A tri-state with the values \em true, \em false and \em undefined */
 typedef struct fastd_tristate {

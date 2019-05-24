@@ -501,6 +501,8 @@ static inline void init_config(int *status_fd) {
 static inline void init(int argc, char *argv[]) {
 	int status_fd = -1;
 
+	conf.bufcnt = 1;
+
 	init_early();
 	fastd_configure(argc, argv);
 	init_config(&status_fd);
