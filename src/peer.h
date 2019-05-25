@@ -296,7 +296,9 @@ static inline void fastd_stats_add(UNUSED fastd_peer_t *peer, UNUSED fastd_stat_
 	ctx.stats.packets[stat]++;
 	ctx.stats.bytes[stat] += bytes;
 
+	if (peer) {
 	peer->stats.packets[stat]++;
 	peer->stats.bytes[stat] += bytes;
+	}
 #endif
 }

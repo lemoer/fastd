@@ -80,8 +80,14 @@ static void * dump_thread(void *p) {
 static json_object * dump_stat(const fastd_stats_t *stats, fastd_stat_type_t type) {
 	struct json_object *ret = json_object_new_object();
 
-	json_object_object_add(ret, "packets", json_object_new_int64(stats->packets[type]));
-	json_object_object_add(ret, "bytes", json_object_new_int64(stats->bytes[type]));
+	if (type == STAT_SENDMMSG_PKTS || type == STAT_RECVMMSG_PKTS) {
+		// this is kinda hacky
+		json_object_object_add(ret, "calls", json_object_new_int64(stats->packets[type]));
+		json_object_object_add(ret, "packets", json_object_new_int64(stats->bytes[type]));
+	} else {
+		json_object_object_add(ret, "packets", json_object_new_int64(stats->packets[type]));
+		json_object_object_add(ret, "bytes", json_object_new_int64(stats->bytes[type]));
+	}
 
 	return ret;
 }
@@ -97,6 +103,9 @@ static json_object * dump_stats(const fastd_stats_t *stats) {
 
 	json_object_object_add(statistics, "rx", dump_stat(stats, STAT_RX));
 	json_object_object_add(statistics, "rx_reordered", dump_stat(stats, STAT_RX_REORDERED));
+
+	json_object_object_add(statistics, "t_recvmmsg", dump_stat(stats, STAT_RECVMMSG_PKTS));
+	json_object_object_add(statistics, "sock_sendmmsg", dump_stat(stats, STAT_SENDMMSG_PKTS));
 
 	json_object_object_add(statistics, "tx", dump_stat(stats, STAT_TX));
 	json_object_object_add(statistics, "tx_dropped", dump_stat(stats, STAT_TX_DROPPED));

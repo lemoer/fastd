@@ -196,6 +196,8 @@ typedef enum fastd_stat_type {
 	STAT_TX,				/**< Transmission statistics (OK) */
 	STAT_TX_DROPPED,			/**< Transmission statistics (dropped because of full queues) */
 	STAT_TX_ERROR,				/**< Transmission statistics (other errors) */
+	STAT_SENDMMSG_PKTS,
+	STAT_RECVMMSG_PKTS,
 	STAT_MAX,				/**< (Number of defined stat types) */
 } fastd_stat_type_t;
 

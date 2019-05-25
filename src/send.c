@@ -162,6 +162,9 @@ void fastd_send_mmsg_maybe_flush(fastd_socket_t *sock, bool force) {
 
 	int ret = sendmmsg(sock->fd.fd, q->mmsg, q->count, 0);
 
+	if (ret > 0)
+		fastd_stats_add(NULL, STAT_SENDMMSG_PKTS, q->count);
+
 	if (ret < 0 && errno == EINVAL && q->has_control) {
 		pr_debug2("sendmsg failed, trying again without pktinfo");
 
@@ -178,6 +181,7 @@ void fastd_send_mmsg_maybe_flush(fastd_socket_t *sock, bool force) {
 		q->has_control = false;
 
 		ret = sendmmsg(sock->fd.fd, q->mmsg, q->count, 0);
+		fastd_stats_add(NULL, STAT_SENDMMSG_PKTS, q->count);
 	}
 
 	for (int i = 0; i < q->count; i++) {

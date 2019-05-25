@@ -481,6 +481,8 @@ void fastd_iface_handle(fastd_iface_t *iface) {
 		if (count < 0)
 			exit_errno("recvmmsg");
 
+		fastd_stats_add(NULL, STAT_RECVMMSG_PKTS, count);
+
 		for (int i = 0; i < conf.bufcnt; i++) {
 			if (i >= count) {
 				fastd_buffer_free(buffer[i]);
