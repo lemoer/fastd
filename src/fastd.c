@@ -633,6 +633,10 @@ static inline void run(void) {
 	fastd_task_handle();
 	fastd_poll_handle();
 
+	for (int i = 0; i < ctx.n_socks; i++) {
+		fastd_send_mmsg_maybe_flush(ctx.socks, true);
+	}
+
 	handle_signals();
 }
 

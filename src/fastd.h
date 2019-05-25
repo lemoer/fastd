@@ -153,12 +153,28 @@ struct fastd_bind_address {
 	char *bindtodev;			/**< May contain an interface name to limit the bind to */
 };
 
+struct fastd_sendmmsg_queue {
+	struct mmsghdr mmsg[MAX_BUFCNT];
+	fastd_buffer_t msg_buffers[MAX_BUFCNT];
+	struct iovec iov[MAX_BUFCNT][2];
+	fastd_peer_address_t dests[MAX_BUFCNT];
+	uint8_t packet_type[MAX_BUFCNT];
+	uint8_t cbuf[MAX_BUFCNT][1024] __attribute__((aligned(8)));
+	size_t count;			/**< Amount of queued packets */
+	bool has_control;
+
+	fastd_peer_t *peers[MAX_BUFCNT];
+	size_t stat_size[MAX_BUFCNT];
+};
+
 /** A socket descriptor */
 struct fastd_socket {
 	fastd_poll_fd_t fd;			/**< The file descriptor for the socket */
 	const fastd_bind_address_t *addr;	/**< The address this socket is supposed to be bound to (or NULL) */
 	fastd_peer_address_t *bound_addr;	/**< The actual address that was bound to (may differ from addr when addr has a random port) */
 	fastd_peer_t *peer;			/**< If the socket belongs to a single peer (as it was create dynamically when sending a handshake), contains that peer */
+
+	struct fastd_sendmmsg_queue q;
 };
 
 /** A TUN/TAP interface */
@@ -357,9 +373,10 @@ extern fastd_context_t ctx;
 extern fastd_config_t conf;
 
 
-void fastd_send(const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, fastd_buffer_t buffer, size_t stat_size);
-void fastd_send_handshake(const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, fastd_buffer_t buffer);
+void fastd_send(fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, fastd_buffer_t buffer, size_t stat_size);
+void fastd_send_handshake(fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, fastd_buffer_t buffer);
 void fastd_send_data(fastd_buffer_t buffer, fastd_peer_t *source, fastd_peer_t *dest);
+void fastd_send_mmsg_maybe_flush(fastd_socket_t *sock, bool force);
 
 void fastd_receive_unknown_init(void);
 void fastd_receive_unknown_free(void);

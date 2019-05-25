@@ -84,103 +84,157 @@ static inline void add_pktinfo(struct msghdr *msg, const fastd_peer_address_t *l
 	}
 }
 
-/** Sends a packet of a given type */
-static void send_type(const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, uint8_t packet_type, fastd_buffer_t buffer, size_t stat_size) {
-	if (!sock)
-		exit_bug("send: sock == NULL");
+void mmsg_enqueue(
+	fastd_socket_t *sock,
+	const fastd_peer_address_t *local_addr,
+	const fastd_peer_address_t *remote_addr,
+	fastd_peer_t *peer,
+	uint8_t packet_type,
+	fastd_buffer_t buffer,
+	size_t stat_size
+) {
+	struct fastd_sendmmsg_queue *q = &sock->q;
+	size_t i = q->count;
 
-	struct msghdr msg = {};
-	uint8_t cbuf[1024] __attribute__((aligned(8))) = {};
-	fastd_peer_address_t remote_addr6;
+	q->peers[i] = peer;
+	q->count++;
+	q->stat_size[i] = stat_size;
+	q->msg_buffers[i] = buffer;
 
-	switch (remote_addr->sa.sa_family) {
+	struct msghdr *msg = &sock->q.mmsg[i].msg_hdr;
+	struct iovec *iov = (struct iovec *) sock->q.iov[i];
+	uint8_t *cbuf = sock->q.cbuf[i];
+	uint8_t *pt = &sock->q.packet_type[i];
+	fastd_peer_address_t *dest = &sock->q.dests[i];
+
+	*dest = *remote_addr;
+
+	int sa_family = remote_addr->sa.sa_family;
+
+	if (sa_family != AF_INET && sa_family != AF_INET6)
+		exit_bug("unsupported address family");
+
+	if (sock->bound_addr->sa.sa_family == AF_INET6) {
+		fastd_peer_address_widen(dest);
+		sa_family = AF_INET6;
+	}
+
+	switch (sa_family) {
 	case AF_INET:
-		msg.msg_name = (void *)&remote_addr->in;
-		msg.msg_namelen = sizeof(struct sockaddr_in);
+		msg->msg_name = (void *)&dest->in;
+		msg->msg_namelen = sizeof(struct sockaddr_in);
 		break;
 
 	case AF_INET6:
-		msg.msg_name = (void *)&remote_addr->in6;
-		msg.msg_namelen = sizeof(struct sockaddr_in6);
+		msg->msg_name = (void *)&dest->in6;
+		msg->msg_namelen = sizeof(struct sockaddr_in6);
 		break;
-
-	default:
-		exit_bug("unsupported address family");
 	}
 
-	if (sock->bound_addr->sa.sa_family == AF_INET6) {
-		remote_addr6 = *remote_addr;
-		fastd_peer_address_widen(&remote_addr6);
+	*pt = packet_type;
 
-		msg.msg_name = (void *)&remote_addr6.in6;
-		msg.msg_namelen = sizeof(struct sockaddr_in6);
-	}
+	iov[0].iov_base = pt;
+	iov[0].iov_len = 1;
+	iov[1].iov_base = buffer.data;
+	iov[1].iov_len = buffer.len;
 
-	struct iovec iov[2] = {
-		{ .iov_base = &packet_type, .iov_len = 1 },
-		{ .iov_base = buffer.data, .iov_len = buffer.len }
-	};
+	msg->msg_iov = iov;
+	msg->msg_iovlen = buffer.len ? 2 : 1;
+	msg->msg_control = cbuf;
+	msg->msg_controllen = 0;
 
-	msg.msg_iov = iov;
-	msg.msg_iovlen = buffer.len ? 2 : 1;
-	msg.msg_control = cbuf;
-	msg.msg_controllen = 0;
+	add_pktinfo(msg, local_addr);
 
-	add_pktinfo(&msg, local_addr);
+	if (!msg->msg_controllen)
+		msg->msg_control = NULL;
+	else
+		sock->q.has_control = true;
+}
 
-	if (!msg.msg_controllen)
-		msg.msg_control = NULL;
+void fastd_send_mmsg_maybe_flush(fastd_socket_t *sock, bool force) {
+	struct fastd_sendmmsg_queue *q = &sock->q;
 
-	int ret = sendmsg(sock->fd.fd, &msg, 0);
+	if (!force && q->count < conf.bufcnt)
+		return;
 
-	if (ret < 0 && errno == EINVAL && msg.msg_controllen) {
+	if (q->count == 0)
+		return;
+
+	int ret = sendmmsg(sock->fd.fd, q->mmsg, q->count, 0);
+
+	if (ret < 0 && errno == EINVAL && q->has_control) {
 		pr_debug2("sendmsg failed, trying again without pktinfo");
 
-		if (peer && !fastd_peer_handshake_scheduled(peer))
-			fastd_peer_schedule_handshake_default(peer);
+		for (int i = 0; i < q->count; i++) {
+			fastd_peer_t *peer = q->peers[i];
 
-		msg.msg_control = NULL;
-		msg.msg_controllen = 0;
+			if (peer && !fastd_peer_handshake_scheduled(peer))
+				fastd_peer_schedule_handshake_default(peer);
 
-		ret = sendmsg(sock->fd.fd, &msg, 0);
+			q->mmsg[i].msg_hdr.msg_control = NULL;
+			q->mmsg[i].msg_hdr.msg_controllen = 0;
+		}
+
+		q->has_control = false;
+
+		ret = sendmmsg(sock->fd.fd, q->mmsg, q->count, 0);
 	}
 
-	if (ret < 0) {
-		switch (errno) {
-		case EAGAIN:
+	for (int i = 0; i < q->count; i++) {
+		if (ret < 0) {
+			// TODO: what happens with half sent packages?
+			switch (errno) {
+			case EAGAIN:
 #if EAGAIN != EWOULDBLOCK
 		case EWOULDBLOCK:
 #endif
-			pr_debug2_errno("sendmsg");
-			fastd_stats_add(peer, STAT_TX_DROPPED, stat_size);
-			break;
+				pr_debug2_errno("sendmmsg");
+				fastd_stats_add(q->peers[i], STAT_TX_DROPPED, q->stat_size[i]);
+				break;
 
-		case ENETDOWN:
-		case ENETUNREACH:
-		case EHOSTUNREACH:
-			pr_debug_errno("sendmsg");
-			fastd_stats_add(peer, STAT_TX_ERROR, stat_size);
-			break;
+			case ENETDOWN:
+			case ENETUNREACH:
+			case EHOSTUNREACH:
+				pr_debug_errno("sendmmsg");
+				fastd_stats_add(q->peers[i], STAT_TX_ERROR, q->stat_size[i]);
+				break;
 
-		default:
-			pr_warn_errno("sendmsg");
-			fastd_stats_add(peer, STAT_TX_ERROR, stat_size);
+			default:
+				pr_warn_errno("sendmsg");
+				fastd_stats_add(q->peers[i], STAT_TX_ERROR, q->stat_size[i]);
+			}
+		} else {
+			fastd_stats_add(q->peers[i], STAT_TX, q->stat_size[i]);
 		}
-	}
-	else {
-		fastd_stats_add(peer, STAT_TX, stat_size);
+
+		fastd_buffer_free(q->msg_buffers[i]);
 	}
 
-	fastd_buffer_free(buffer);
+	q->count = 0;
+	q->has_control = false;
+
+	return;
+}
+
+
+/** Sends a packet of a given type */
+static void send_type(fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, uint8_t packet_type, fastd_buffer_t buffer, size_t stat_size) {
+	if (!sock)
+		exit_bug("send: sock == NULL");
+
+	mmsg_enqueue(sock, local_addr, remote_addr, peer, packet_type, buffer, stat_size);
+
+	// flush here, if queue is full
+	fastd_send_mmsg_maybe_flush(sock, false);
 }
 
 /** Sends a payload packet */
-void fastd_send(const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, fastd_buffer_t buffer, size_t stat_size) {
+void fastd_send(fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, fastd_buffer_t buffer, size_t stat_size) {
 	send_type(sock, local_addr, remote_addr, peer, PACKET_DATA, buffer, stat_size);
 }
 
 /** Sends a handshake packet */
-void fastd_send_handshake(const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, fastd_buffer_t buffer) {
+void fastd_send_handshake(fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, fastd_buffer_t buffer) {
 	send_type(sock, local_addr, remote_addr, peer, PACKET_HANDSHAKE, buffer, 0);
 }
 

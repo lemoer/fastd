@@ -305,7 +305,7 @@ static void clear_shared_handshake_key(const fastd_peer_t *peer) {
 }
 
 /** Sends a reply to an initial handshake (type 1) */
-static void respond_handshake(const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer,
+static void respond_handshake(fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer,
 			      const aligned_int256_t *peer_handshake_key, const fastd_method_info_t *method, bool little_endian) {
 	pr_debug("responding handshake with %P[%I]...", peer, remote_addr);
 
