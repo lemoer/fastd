@@ -637,6 +637,8 @@ static inline void run(void) {
 		fastd_send_mmsg_maybe_flush(ctx.socks, true);
 	}
 
+	fastd_send_mmsg_iface_maybe_flush(ctx.iface, true);
+
 	handle_signals();
 }
 

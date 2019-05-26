@@ -516,6 +516,48 @@ void fastd_iface_handle(fastd_iface_t *iface) {
 	}
 }
 
+void mmsg_iface_enqueue(fastd_iface_t *iface, fastd_buffer_t buffer) {
+	struct fastd_sendmmsg_queue *q = &iface->q;
+	size_t i = q->count;
+
+	q->count++;
+	q->msg_buffers[i] = buffer;
+
+	struct msghdr *msg = &q->mmsg[i].msg_hdr;
+	struct iovec *iov = (struct iovec *) q->iov[i];
+
+	iov[0].iov_base = buffer.data;
+	iov[0].iov_len = buffer.len;
+
+	msg->msg_iov = iov;
+	msg->msg_iovlen = 1;
+	msg->msg_control = NULL;
+	msg->msg_controllen = 0;
+}
+
+void fastd_send_mmsg_iface_maybe_flush(fastd_iface_t *iface, bool force) {
+	struct fastd_sendmmsg_queue *q = &iface->q;
+
+	if (!force && q->count < conf.bufcnt)
+		return;
+
+	if (q->count == 0)
+		return;
+
+	int ret = sendmmsg(iface->fd.fd, q->mmsg, q->count, 0);
+
+	if (ret < 0)
+		pr_debug2_errno("tun sendmmsg");
+
+	for (int i = 0; i < q->count; i++) {
+		fastd_buffer_free(q->msg_buffers[i]);
+	}
+
+	q->count = 0;
+
+	return;
+}
+
 /** Writes a packet to the TUN/TAP device */
 void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {
 	if (!buffer.len) {
@@ -545,8 +587,14 @@ void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {
 		memcpy(buffer.data, &af, 4);
 	}
 
-	if (write(iface->fd.fd, buffer.data, buffer.len) < 0)
-		pr_debug2_errno("write");
+	if (conf.bufcnt > 1) {
+		mmsg_iface_enqueue(iface, buffer);
+		fastd_send_mmsg_iface_maybe_flush(iface, false);
+	} else {
+		if (write(iface->fd.fd, buffer.data, buffer.len) < 0)
+			pr_debug2_errno("write");
+		fastd_buffer_free(buffer);
+	}
 }
 
 /** Opens a new TUN/TAP interface, optionally associated with a specific peer */

@@ -312,6 +312,4 @@ void fastd_handle_receive(fastd_peer_t *peer, fastd_buffer_t buffer, bool reorde
 		fastd_send_data(buffer, peer, NULL);
 		return;
 	}
-
-	fastd_buffer_free(buffer);
 }

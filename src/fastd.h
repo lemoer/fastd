@@ -184,6 +184,8 @@ struct fastd_iface {
 	fastd_peer_t *peer;			/**< The peer associated with the interface (if any) */
 	uint16_t mtu;				/**< The MTU of the interface */
 	bool cleanup;				/**< Determines if the interface should be deleted after use; not used on all platforms */
+
+	struct fastd_sendmmsg_queue q;
 };
 
 
@@ -377,6 +379,7 @@ void fastd_send(fastd_socket_t *sock, const fastd_peer_address_t *local_addr, co
 void fastd_send_handshake(fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr, fastd_peer_t *peer, fastd_buffer_t buffer);
 void fastd_send_data(fastd_buffer_t buffer, fastd_peer_t *source, fastd_peer_t *dest);
 void fastd_send_mmsg_maybe_flush(fastd_socket_t *sock, bool force);
+void fastd_send_mmsg_iface_maybe_flush(fastd_iface_t *iface, bool force);
 
 void fastd_receive_unknown_init(void);
 void fastd_receive_unknown_free(void);
