@@ -245,45 +245,61 @@ static inline void handle_socket_receive(fastd_socket_t *sock, const fastd_peer_
 /** Reads a packet from a socket */
 void fastd_receive(fastd_socket_t *sock) {
 	size_t max_len = 1 + fastd_max_payload(ctx.max_mtu) + conf.max_overhead;
-	fastd_buffer_t buffer = fastd_buffer_alloc(max_len, conf.min_decrypt_head_space, conf.min_decrypt_tail_space);
-	fastd_peer_address_t local_addr;
-	fastd_peer_address_t recvaddr;
-	struct iovec buffer_vec = { .iov_base = buffer.data, .iov_len = buffer.len };
-	uint8_t cbuf[1024] __attribute__((aligned(8)));
 
-	struct msghdr message = {
-		.msg_name = &recvaddr,
-		.msg_namelen = sizeof(recvaddr),
-		.msg_iov = &buffer_vec,
-		.msg_iovlen = 1,
-		.msg_control = cbuf,
-		.msg_controllen = sizeof(cbuf),
+	ssize_t count;
+	fastd_buffer_t buffer[MAX_BUFCNT] = {};
+	struct mmsghdr mmsg[MAX_BUFCNT] = {};
+	struct iovec io[MAX_BUFCNT] = {};
+	fastd_peer_address_t local_addr[MAX_BUFCNT];
+	fastd_peer_address_t recvaddr[MAX_BUFCNT];
+	uint8_t cbuf[MAX_BUFCNT][1024] __attribute__((aligned(8)));
+
+	struct timespec timeout = {
+		.tv_sec = 1,
+		.tv_nsec = 0
 	};
 
-	ssize_t len = recvmsg(sock->fd.fd, &message, 0);
-	if (len <= 0) {
-		if (len < 0)
-			pr_warn_errno("recvmsg");
+	for (int i = 0; i < conf.bufcnt; i++) {
+		buffer[i] = fastd_buffer_alloc(max_len, conf.min_decrypt_head_space, conf.min_decrypt_tail_space);
 
-		fastd_buffer_free(buffer);
-		return;
+		io[i].iov_base = buffer[i].data;
+		io[i].iov_len = max_len;
+
+		mmsg[i].msg_hdr.msg_iov = &io[i];
+		mmsg[i].msg_hdr.msg_iovlen = 1;
+		mmsg[i].msg_hdr.msg_name = &recvaddr[i];
+		mmsg[i].msg_hdr.msg_namelen = sizeof(*recvaddr);
+		mmsg[i].msg_hdr.msg_control = cbuf[i];
+		mmsg[i].msg_hdr.msg_controllen = sizeof(*cbuf);
 	}
 
-	buffer.len = len;
+	count = recvmmsg(sock->fd.fd, mmsg, conf.bufcnt, MSG_WAITFORONE, &timeout);
 
-	handle_socket_control(&message, sock, &local_addr);
+	if (count < 0)
+		exit_error("recvmmsg");
+
+	for (int i = 0; i < conf.bufcnt; i++) {
+		if (i >= count) {
+			fastd_buffer_free(buffer[i]);
+			continue;
+		}
+
+		buffer[i].len = mmsg[i].msg_len;
+
+		handle_socket_control(&mmsg[i].msg_hdr, sock, &local_addr[i]);
 
 #ifdef USE_PKTINFO
-	if (!local_addr.sa.sa_family) {
-		pr_error("received packet without packet info");
-		fastd_buffer_free(buffer);
-		return;
-	}
+		if (!local_addr[i].sa.sa_family) {
+			pr_error("received packet without packet info");
+			fastd_buffer_free(buffer[i]);
+			return;
+		}
 #endif
 
-	fastd_peer_address_simplify(&recvaddr);
+		fastd_peer_address_simplify(&recvaddr[i]);
 
-	handle_socket_receive(sock, &local_addr, &recvaddr, buffer);
+		handle_socket_receive(sock, &local_addr[i], &recvaddr[i], buffer[i]);
+	}
 }
 
 /** Handles a received and decrypted payload packet */
