@@ -12,6 +12,9 @@
 
 #include <liburing.h>
 #include "uring.h"
+#include "fastd.h"
+
+struct uring_priv uring_privs[MAX_URING_SIZE];
 
 static inline struct uring_priv *fastd_uring_priv_acquire() {
 	struct uring_priv *priv = ctx.uring_priv_avail;

@@ -1,6 +1,25 @@
 
 #pragma once
 
+#include "poll.h"
+#include "buffer.h"
+
+#define MAX_URING_SIZE 256
+#define MAX_READ_JOBS 64
+#define MAX_PACKETS
+
+struct uring_priv {
+	fastd_poll_uring_t action;
+	fastd_buffer_t buf;
+	struct msghdr msg;
+	uint8_t cbuf[1024] __attribute__((aligned(8)));
+	struct fastd_poll_fd *fd;
+	int iovec_count;
+	struct iovec iov[2];
+};
+
+extern struct uring_priv uring_privs[MAX_URING_SIZE];
+
 void fastd_uring_init(void);
 void fastd_poll_free(void);
 

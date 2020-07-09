@@ -25,6 +25,7 @@
 #include "task.h"
 #include "util.h"
 #include "vector.h"
+#include "uring.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -36,7 +37,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <liburing.h>
 
+#define MAX_URING_BACKLOG_SIZE 64
 
 /** An ethernet address */
 struct __attribute__((packed)) fastd_eth_addr {
@@ -299,7 +302,7 @@ struct fastd_context {
 	fastd_sem_t verify_limit; /**< Keeps track of the number of verifier threads */
 #endif
 
-#ifdef USE_IO_URING
+#ifdef HAVE_LIBURING
 	struct io_uring_params uring_params;
 	struct io_uring uring;
 	struct uring_priv uring_privs[MAX_URING_BACKLOG_SIZE];
