@@ -66,7 +66,20 @@ typedef enum fastd_poll_type {
 	POLL_TYPE_STATUS,     /**< The status socket */
 	POLL_TYPE_IFACE,      /**< A TUN/TAP interface */
 	POLL_TYPE_SOCKET,     /**< A network socket */
+	POLL_TYPE_URING_SOCK,
+	POLL_TYPE_URING_IFACE
 } fastd_poll_type_t;
+
+/** Types of uring events to poll on */
+typedef enum fastd_poll_uring {
+	POLL_URING_UNSPEC = 0, /**< Unspecified type */
+	POLL_URING_RECEIVE,    /**< Receiving a packet */
+	POLL_URING_SEND,       /**< Sending a packet */
+	POLL_URING_ACCEPT      /**< Accepting a new connection */
+} fastd_poll_uring_t;
+
+
+
 
 /** Task types */
 typedef enum fastd_task_type {

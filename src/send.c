@@ -69,6 +69,11 @@ static inline void add_pktinfo(struct msghdr *msg, const fastd_peer_address_t *l
 static void send_type(
 	const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr,
 	fastd_peer_t *peer, uint8_t packet_type, fastd_buffer_t buffer, size_t stat_size) {
+
+#ifdef USE_LIBURING
+	fastd_poll_uring_sock_sendmsg(sock, local_addr, remote_addr, peer, packet_type, buffer, stat_size);
+#else
+
 	if (!sock)
 		exit_bug("send: sock == NULL");
 
@@ -113,7 +118,11 @@ static void send_type(
 		msg.msg_control = NULL;
 
 	int ret = sendmsg(sock->fd.fd, &msg, 0);
+	send_callback(msg, peer, ret, buffer);
+#endif
+}
 
+void send_callback(struct msghdr msg, fastd_peer_t *peer, int ret, fastd_buffer_t buffer) {
 	if (ret < 0 && msg.msg_controllen) {
 		switch (errno) {
 		case EINVAL:

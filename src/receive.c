@@ -227,25 +227,10 @@ static inline void handle_socket_receive(
 	}
 }
 
-/** Reads a packet from a socket */
-void fastd_receive(fastd_socket_t *sock) {
-	size_t max_len = 1 + fastd_max_payload(ctx.max_mtu) + conf.max_overhead;
-	fastd_buffer_t buffer = fastd_buffer_alloc(max_len, conf.min_decrypt_head_space, conf.min_decrypt_tail_space);
+void fastd_receive_callback(fastd_socket_t *sock, struct msghdr message, int len, fastd_buffer_t buffer) {
 	fastd_peer_address_t local_addr;
-	fastd_peer_address_t recvaddr;
-	struct iovec buffer_vec = { .iov_base = buffer.data, .iov_len = buffer.len };
-	uint8_t cbuf[1024] __attribute__((aligned(8)));
+	fastd_peer_address_t recvaddr = *(message.msg_name);
 
-	struct msghdr message = {
-		.msg_name = &recvaddr,
-		.msg_namelen = sizeof(recvaddr),
-		.msg_iov = &buffer_vec,
-		.msg_iovlen = 1,
-		.msg_control = cbuf,
-		.msg_controllen = sizeof(cbuf),
-	};
-
-	ssize_t len = recvmsg(sock->fd.fd, &message, 0);
 	if (len <= 0) {
 		if (len < 0)
 			pr_warn_errno("recvmsg");
@@ -270,6 +255,29 @@ void fastd_receive(fastd_socket_t *sock) {
 	fastd_peer_address_simplify(&recvaddr);
 
 	handle_socket_receive(sock, &local_addr, &recvaddr, buffer);
+}
+
+/** Reads a packet from a socket */
+void fastd_receive(fastd_socket_t *sock) {
+	size_t max_len = 1 + fastd_max_payload(ctx.max_mtu) + conf.max_overhead;
+	fastd_buffer_t buffer = fastd_buffer_alloc(max_len, conf.min_decrypt_head_space, conf.min_decrypt_tail_space);
+	fastd_peer_address_t recvaddr;
+	
+	struct iovec buffer_vec = { .iov_base = buffer.data, .iov_len = buffer.len };
+	uint8_t cbuf[1024] __attribute__((aligned(8)));
+
+	struct msghdr message = {
+		.msg_name = &recvaddr,
+		.msg_namelen = sizeof(recvaddr),
+		.msg_iov = &buffer_vec,
+		.msg_iovlen = 1,
+		.msg_control = cbuf,
+		.msg_controllen = sizeof(cbuf),
+	};
+
+	ssize_t len = recvmsg(sock->fd.fd, &message, 0);
+
+	fastd_receive_callback(sock, message, len, fastd_buffer_t buffer);	
 }
 
 /** Handles a received and decrypted payload packet */

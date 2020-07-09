@@ -19,6 +19,10 @@
 #include "peer.h"
 #include "poll.h"
 
+#ifdef HAVE_LIBURING
+#include "liburing.h"
+#endif
+
 #include <net/if.h>
 #include <sys/ioctl.h>
 
@@ -395,16 +399,37 @@ static void cleanup_iface(UNUSED fastd_iface_t *iface) {}
 
 #endif
 
+/** Allocates a buffer for receiving a packet on the TUN/TAP device */
+fastd_buffer_t fastd_iface_buffer_alloc(fastd_iface_t *iface, size_t max_len) {
+	if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN)
+		return fastd_buffer_alloc(max_len + 4, conf.min_encrypt_head_space + 12, conf.min_encrypt_tail_space);
+	else
+		return fastd_buffer_alloc(max_len, conf.min_encrypt_head_space, conf.min_encrypt_tail_space);
+}
 
 /** Reads a packet from the TUN/TAP device */
 void fastd_iface_handle(fastd_iface_t *iface) {
 	size_t max_len = fastd_max_payload(iface->mtu);
 
-	fastd_buffer_t buffer;
+	fastd_buffer_t buffer = fastd_iface_buffer_alloc(fastd_iface_t *iface, size_t max_len);
+
+	ssize_t len = read(iface->fd.fd, buffer.data, max_len);
+	if (len < 0)
+		exit_errno("read");
+
+	buffer.len = len;
+
 	if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN)
-		buffer = fastd_buffer_alloc(max_len + 4, conf.min_encrypt_head_space + 12, conf.min_encrypt_tail_space);
-	else
-		buffer = fastd_buffer_alloc(max_len, conf.min_encrypt_head_space, conf.min_encrypt_tail_space);
+		fastd_buffer_push_head(&buffer, 4);
+
+	fastd_send_data(buffer, NULL, iface->peer);
+}
+
+/** Reads a packet received by io_uring from the TUN/TAP device */
+void fastd_iface_uring_recv(struct uring_priv priv) {
+	size_t max_len = fastd_max_payload(iface->mtu);
+
+	fastd_buffer_t buffer = fastd_iface_buffer_alloc(fastd_iface_t *iface, size_t max_len);
 
 	ssize_t len = read(iface->fd.fd, buffer.data, max_len);
 	if (len < 0)
@@ -447,8 +472,12 @@ void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {
 		memcpy(buffer.data, &af, 4);
 	}
 
+#ifdef USE_LIBURING
+	fastd_uring_iface_write(iface->fd.fd, buffer.data, buffer.len);
+#else
 	if (write(iface->fd.fd, buffer.data, buffer.len) < 0)
 		pr_debug2_errno("write");
+#endif
 }
 
 /** Opens a new TUN/TAP interface, optionally associated with a specific peer */
