@@ -70,15 +70,6 @@ typedef enum fastd_poll_type {
 	POLL_TYPE_URING_IFACE
 } fastd_poll_type_t;
 
-/** Types of uring events to poll on */
-typedef enum fastd_poll_uring {
-	POLL_URING_UNSPEC = 0, /**< Unspecified type */
-	POLL_URING_RECEIVE,    /**< Receiving a packet */
-	POLL_URING_SEND,       /**< Sending a packet */
-	POLL_URING_ACCEPT      /**< Accepting a new connection */
-} fastd_poll_uring_t;
-
-
 
 
 /** Task types */

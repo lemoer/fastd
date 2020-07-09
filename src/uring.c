@@ -48,7 +48,7 @@ void fastd_uring_init(void) {
 	if (io_uring_queue_init_params(MAX_URING_SIZE, &ctx.uring, &ctx.uring_params) < 0)
         	exit_bug("uring init failed.");
 
-	if (!(ctx.params.features & IORING_FEAT_FAST_POLL))
+	if (!(ctx.uring_params.features & IORING_FEAT_FAST_POLL))
 		exit_bug("uring fast poll not supported by the kernel.");
 }
 
@@ -57,7 +57,7 @@ void fastd_uring_free(void) {
 }
 
 void fastd_uring_iface_read(fastd_iface_t *iface) {
-	struct io_uring_sqe *sqe = io_uring_get_sqe(ctx.uring);
+	struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.uring);
 	struct uring_priv *priv = fastd_uring_priv_acquire();
 	size_t max_len = fastd_max_payload(iface->mtu);
 
@@ -68,31 +68,31 @@ void fastd_uring_iface_read(fastd_iface_t *iface) {
 	priv->buf = fastd_iface_buffer_alloc(iface, max_len);
 	priv->iov[0].iov_base = priv->buf.data;
 	priv->iov[0].iov_len = max_len;
-	priv->action = EVENT_TYPE_IFACE_READ;
+	priv->action = EVENT_TYPE_INPUT;
 
-	io_uring_prep_readv(sqe, iface->fd.fd, &req->iov[0], 1, 0);
+	io_uring_prep_readv(sqe, iface->fd.fd, &priv->iov[0], 1, 0);
 	io_uring_sqe_set_data(sqe, priv);
 }
 
-void fastd_uring_iface_write(int fd, void *data, size_t len) {
-	struct io_uring_sqe *sqe = io_uring_get_sqe(ctx.uring);
+void fastd_uring_iface_write(fastd_iface_t *iface, fastd_buffer_t buf) {
+	struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.uring);
 	struct uring_priv *priv = fastd_uring_priv_acquire();
 
 	io_uring_sqe_set_flags(sqe, 0);
 
 	ctx.uring_priv_avail = priv->next;
 
-	priv->action = EVENT_TYPE_IFACE_WRITE;
-	priv->buf = fastd_iface_buffer_alloc(iface, max_len);
-	priv->iov[0].iov_base = data;
-	priv->iov[0].iov_len = len;
+	priv->action = EVENT_TYPE_OUTPUT;
+	priv->buf = buf;
+	priv->iov[0].iov_base = buf.data;
+	priv->iov[0].iov_len = buf.len;
 
-	io_uring_prep_writev(sqe, fd, &priv->iov[0], 1, 0);
+	io_uring_prep_writev(sqe, iface->fd.fd, &priv->iov[0], 1, 0);
 	io_uring_sqe_set_data(sqe, priv);
 }
 
 void fastd_uring_sock_recvmsg(fastd_socket_t *sock) {
-	struct io_uring_sqe *sqe = io_uring_get_sqe(ctx.uring);
+	struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.uring);
 	struct uring_priv *priv = fastd_uring_priv_acquire();
 	size_t max_len = 1 + fastd_max_payload(ctx.max_mtu) + conf.max_overhead;
 	fastd_buffer_t buffer;
@@ -103,7 +103,7 @@ void fastd_uring_sock_recvmsg(fastd_socket_t *sock) {
 
 	ctx.uring_priv_avail = priv->next;
 
-	priv->action = EVENT_TYPE_SOCK_RECVMSG;
+	priv->action = EVENT_TYPE_INPUT;
 	priv->buf = fastd_buffer_alloc(max_len, conf.min_decrypt_head_space, conf.min_decrypt_tail_space);
 	priv->iov[0].iov_base = priv->buf.data;
 	priv->iov[0].iov_len = priv->buf.len;
@@ -122,7 +122,7 @@ void fastd_uring_sock_recvmsg(fastd_socket_t *sock) {
 
 void fastd_uring_sock_sendmsg(fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr,
 	fastd_peer_t *peer, uint8_t packet_type, fastd_buffer_t buffer, size_t stat_size) {
-	struct io_uring_sqe *sqe = io_uring_get_sqe(ctx.uring);
+	struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.uring);
 	struct uring_priv *priv = fastd_uring_priv_acquire();
 	size_t max_len = fastd_max_payload(iface->mtu);
 	fastd_peer_address_t remote_addr6;
@@ -130,7 +130,7 @@ void fastd_uring_sock_sendmsg(fastd_socket_t *sock, const fastd_peer_address_t *
 	if (!sock)
 		exit_bug("send: sock == NULL");
 
-	priv->action = EVENT_TYPE_SOCK_SENDMSG;
+	priv->action = EVENT_TYPE_OUTPUT;
 	priv->buf = buffer;
 	priv->cbuf = {};
 	priv->msg = {};
@@ -223,17 +223,7 @@ static inline void handle_cqe(struct io_uring_cqe *cqe) {
 	priv = (struct uring_priv *)io_uring_cqe_get_data(cqe);
 
 	switch(priv->action) {
-	case EVENT_TYPE_ACCEPT: {
-		int sock_conn_fd = cqe->res;
-			io_uring_cqe_seen(&ring, cqe);
-
-			// new connected client; read data from socket and re-add accept to monitor for new connections
-			add_socket_read(&ring, sock_conn_fd, MAX_MESSAGE_LEN, 0);
-			add_accept(&ring, sock_listen_fd, (struct sockaddr *)&client_addr, &client_len, 0);
-
-			break;
-		}
-	case EVENT_TYPE_READ:
+	case EVENT_TYPE_INPUT:
 		if (cqe->res <= 0) {
 			// no bytes available on socket, client must be disconnected
 
@@ -273,7 +263,7 @@ static inline void handle_cqe(struct io_uring_cqe *cqe) {
 		}
 
 		break;
-	case EVENT_TYPE_WRITE:
+	case EVENT_TYPE_OUTPUT:
 		if (POLL_TYPE_URING_SOCK == priv->fd->type) {
 			send_callback(priv->msg, priv->peer, cqe->res, priv->buf);
 		} else if (POLL_TYPE_URING_IFACE == priv->fd->type) {
@@ -292,7 +282,7 @@ static inline void handle_cqe(struct io_uring_cqe *cqe) {
 
 void fastd_uring_handle(void) {
 	struct io_uring_cqe *cqe;
-	struct io_uring_cqe *cqes[BACKLOG];
+	struct io_uring_cqe *cqes[MAX_URING_BACKLOG_SIZE];
 	struct uring_priv *priv;
 	int timeout = task_timeout();
 	int cqe_count, ret, i;

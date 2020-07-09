@@ -475,7 +475,7 @@ void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {
 	}
 
 #ifdef USE_LIBURING
-	fastd_uring_iface_write(iface->fd.fd, buffer.data, buffer.len);
+	fastd_uring_iface_write(iface, buffer);
 #else
 	if (write(iface->fd.fd, buffer.data, buffer.len) < 0)
 		pr_debug2_errno("write");
