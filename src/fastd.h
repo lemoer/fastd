@@ -307,13 +307,12 @@ struct fastd_context {
 	struct io_uring uring;
 	struct uring_priv uring_privs[MAX_URING_BACKLOG_SIZE];
 	struct uring_priv *uring_priv_avail;
-#else
+#endif
 #ifdef USE_EPOLL
 	int epoll_fd; /**< The file descriptor for the epoll facility */
 #else
 	VECTOR(fastd_poll_fd_t *) fds; /**< Vector of file descriptors to poll on, indexed by the FD itself */
 	VECTOR(struct pollfd) pollfds; /**< The vector of pollfds for all file descriptors */
-#endif
 #endif
 
 #ifdef WITH_STATUS_SOCKET

@@ -22,6 +22,7 @@ struct uring_priv {
 	int iovec_count;
 	struct iovec iov[2];
 	struct uring_priv *next;
+	uint8_t packet_type;
 };
 
 extern struct uring_priv uring_privs[MAX_URING_SIZE];

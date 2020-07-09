@@ -10,6 +10,7 @@
    Extends the polling with io_uring support
 */
 
+#include <sys/epoll.h>
 #include <liburing.h>
 #include "uring.h"
 #include "fastd.h"
@@ -124,7 +125,6 @@ void fastd_uring_sock_sendmsg(fastd_socket_t *sock, const fastd_peer_address_t *
 	fastd_peer_t *peer, uint8_t packet_type, fastd_buffer_t buffer, size_t stat_size) {
 	struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx.uring);
 	struct uring_priv *priv = fastd_uring_priv_acquire();
-	size_t max_len = fastd_max_payload(iface->mtu);
 	fastd_peer_address_t remote_addr6;
 
 	if (!sock)
@@ -132,8 +132,8 @@ void fastd_uring_sock_sendmsg(fastd_socket_t *sock, const fastd_peer_address_t *
 
 	priv->action = EVENT_TYPE_OUTPUT;
 	priv->buf = buffer;
-	priv->cbuf = {};
-	priv->msg = {};
+	memset(priv->cbuf, 0, sizeof(priv->cbuf));
+	memset(&priv->msg, 0, sizeof(priv->msg));
 
 	switch (remote_addr->sa.sa_family) {
 	case AF_INET:
@@ -158,15 +158,17 @@ void fastd_uring_sock_sendmsg(fastd_socket_t *sock, const fastd_peer_address_t *
 		priv->msg.msg_namelen = sizeof(struct sockaddr_in6);
 	}
 
-	priv->iov[0].iov_base = priv->buf.data;
+	priv->packet_type = packet_type;
+
+	priv->iov[0].iov_base = priv->packet_type;
 	priv->iov[0].iov_len = 1;
 
 	priv->iov[1].iov_base = priv->buf.data;
-	priv->iov[1].iov_len = max_len;
+	priv->iov[1].iov_len = priv->buf.len;
 
 	priv->msg.msg_iov = &priv->iov;
 	priv->msg.msg_iovlen = priv->buf.len ? 2 : 1;
-	priv->msg.msg_control = cbuf;
+	priv->msg.msg_control = priv->cbuf;
 	priv->msg.msg_controllen = 0;
 
 	add_pktinfo(&priv->msg, local_addr);
@@ -175,7 +177,7 @@ void fastd_uring_sock_sendmsg(fastd_socket_t *sock, const fastd_peer_address_t *
 		priv->msg.msg_control = NULL;
 
 
-	io_uring_prep_sendmsg(sqe, sock->fd.fd, &msg, 0);
+	io_uring_prep_sendmsg(sqe, sock->fd.fd, &priv->msg, 0);
 	io_uring_sqe_set_data(sqe, priv);
 	io_uring_sqe_set_flags(sqe, 0);
 }
@@ -183,7 +185,7 @@ void fastd_uring_sock_sendmsg(fastd_socket_t *sock, const fastd_peer_address_t *
 void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 	switch(fd->type) {
 	case POLL_TYPE_URING_IFACE:
-		fastd_iface_t *iface = container_of(fd, fastd_iface_t, fd);
+		fastd_iface_t *iface = container_of(fd->fd, fastd_iface_t, fd);
 
 		for(int i = 0; i < MAX_READ_JOBS; i++)
 			fastd_uring_iface_read(iface);
@@ -191,7 +193,7 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 		io_uring_submit(&ctx.uring);
 		break;
 	case POLL_TYPE_URING_SOCK:
-		fastd_socket_t *sock = container_of(fd, fastd_socket_t, fd);
+		fastd_socket_t *sock = container_of(fd->fd, fastd_socket_t, fd);
 
 		break;
 	default:
@@ -235,7 +237,7 @@ static inline void handle_cqe(struct io_uring_cqe *cqe) {
 		}
 
 		if (POLL_TYPE_URING_SOCK == priv->fd->type) {
-			fastd_socket_t *sock = container_of(fd, fastd_socket_t, fd);
+			fastd_socket_t *sock = container_of(priv->fd, fastd_socket_t, fd);
 			int res = cqe->res;
 
 			io_uring_cqe_seen(&ctx.ring, cqe);
@@ -256,7 +258,7 @@ static inline void handle_cqe(struct io_uring_cqe *cqe) {
 
 
 		} else if (POLL_TYPE_URING_IFACE == priv->fd->type) {
-			fastd_iface_t *iface = container_of(fd, fastd_iface_t, fd);
+			fastd_iface_t *iface = container_of(priv->fd, fastd_iface_t, fd);
 			fastd_iface_handle(iface);
 		} else {
 			exit_bug("unknown poll type");

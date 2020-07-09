@@ -115,8 +115,8 @@ static void send_type(
 	const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr,
 	fastd_peer_t *peer, uint8_t packet_type, fastd_buffer_t buffer, size_t stat_size) {
 
-#ifdef USE_LIBURING
-	fastd_poll_uring_sock_sendmsg(sock, local_addr, remote_addr, peer, packet_type, buffer, stat_size);
+#ifdef HAVE_LIBURING
+	fastd_uring_sock_sendmsg(sock, local_addr, remote_addr, peer, packet_type, buffer, stat_size);
 #else
 
 	if (!sock)
