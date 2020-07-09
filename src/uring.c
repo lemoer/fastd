@@ -184,7 +184,7 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 
 		for(int i = 0; i < MAX_READ_JOBS; i++)
 			fastd_uring_iface_read(iface);
-		
+
 		io_uring_submit(&ctx.uring);
 		break;
 	case POLL_TYPE_URING_SOCK:
@@ -216,7 +216,7 @@ bool fastd_uring_fd_close(fastd_poll_fd_t *fd) {
 }
 
 
-static inline void handle_cqe(struct io_uring_cqe *cqe, ) {
+static inline void handle_cqe(struct io_uring_cqe *cqe) {
 	priv = (struct uring_priv *)io_uring_cqe_get_data(cqe);
 
 	switch(priv->action) {
@@ -233,7 +233,7 @@ static inline void handle_cqe(struct io_uring_cqe *cqe, ) {
 	case EVENT_TYPE_READ:
 		if (cqe->res <= 0) {
 			// no bytes available on socket, client must be disconnected
-			
+
 			shutdown(user_data->fd, SHUT_RDWR);
 		} else	{
 			// bytes have been read into bufs, now add write to socket sqe
@@ -260,8 +260,8 @@ static inline void handle_cqe(struct io_uring_cqe *cqe, ) {
 			}
 
 			fastd_receive_callback(sock, priv->msg, cqe->res, priv->buf);
-			
-			
+
+
 		} else if (POLL_TYPE_URING_IFACE == priv->fd->type) {
 			fastd_iface_t *iface = container_of(fd, fastd_iface_t, fd);
 			fastd_iface_handle(iface);
@@ -309,5 +309,3 @@ void fastd_uring_handle(void) {
 	for (i = 0; i < cqe_count; ++i)
 		handle_cqe(cqes[i]);
 }
-
-

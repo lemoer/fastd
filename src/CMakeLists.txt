@@ -44,6 +44,7 @@ add_executable(fastd
   time.c
   vector.c
   verify.c
+  uring.c
   ${BISON_fastd_config_parse_OUTPUTS}
 )
 set_property(TARGET fastd PROPERTY COMPILE_FLAGS "${FASTD_CFLAGS}")

@@ -17,7 +17,7 @@
 
 #include <signal.h>
 
-#ifdef USE_IO_URING
+#ifdef USE_EPOLL
 
 #include "uring.h"
 
@@ -125,8 +125,10 @@ bool fastd_poll_fd_close(fastd_poll_fd_t *fd) {
 }
 
 void fastd_poll_handle(void) {
-	fastd_uring_handle(fd);
+	fastd_uring_handle();
 }
+
+#else
 
 #ifndef SYS_epoll_pwait
 #define SYS_epoll_pwait __NR_epoll_pwait
@@ -178,7 +180,7 @@ void fastd_poll_handle(void) {
 
 	// wait for new cqe to become available
 
- int struct io_uring *ring, struct io_uring_cqe **cqe_ptr, unsigned wait_nr, struct __kernel_timespec *ts, sigset_t *sigmask)
+	int struct io_uring *ring, struct io_uring_cqe **cqe_ptr, unsigned wait_nr, struct __kernel_timespec *ts, sigset_t *sigmask;
 	ret = io_uring_wait_cqes(&ctx.ring, &cqe, 1, );
 	if (ret != 0) {
 	    perror("Error io_uring_wait_cqe\n");
@@ -188,7 +190,7 @@ void fastd_poll_handle(void) {
 	// check how many cqe's are on the cqe ring at this moment
 	cqe_count = io_uring_peek_batch_cqe(&ring, cqes, sizeof(cqes) / sizeof(cqes[0]));
 
-int io_uring_wait_cqes(struct io_uring *ring, struct io_uring_cqe **cqe_ptr, unsigned wait_nr, struct __kernel_timespec *ts, sigset_t *sigmask)¶
+	int io_uring_wait_cqes(struct io_uring *ring, struct io_uring_cqe **cqe_ptr, unsigned wait_nr, struct __kernel_timespec *ts, sigset_t *sigmask);
 
 	struct epoll_event events[16];
 	int ret = epoll_wait_unblocked(ctx.epoll_fd, events, 16, timeout);
@@ -205,7 +207,6 @@ int io_uring_wait_cqes(struct io_uring *ring, struct io_uring_cqe **cqe_ptr, uns
 		handle_fd(events[i].data.ptr, events[i].events & EPOLLIN, events[i].events & (EPOLLERR | EPOLLHUP));
 }
 
-#else
 
 void fastd_poll_init(void) {}
 

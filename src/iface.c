@@ -411,7 +411,7 @@ fastd_buffer_t fastd_iface_buffer_alloc(fastd_iface_t *iface, size_t max_len) {
 void fastd_iface_handle(fastd_iface_t *iface) {
 	size_t max_len = fastd_max_payload(iface->mtu);
 
-	fastd_buffer_t buffer = fastd_iface_buffer_alloc(fastd_iface_t *iface, size_t max_len);
+	fastd_buffer_t buffer = fastd_iface_buffer_alloc(iface, max_len);
 
 	ssize_t len = read(iface->fd.fd, buffer.data, max_len);
 	if (len < 0)
@@ -426,10 +426,11 @@ void fastd_iface_handle(fastd_iface_t *iface) {
 }
 
 /** Reads a packet received by io_uring from the TUN/TAP device */
+/*
 void fastd_iface_uring_recv(struct uring_priv priv) {
 	size_t max_len = fastd_max_payload(iface->mtu);
 
-	fastd_buffer_t buffer = fastd_iface_buffer_alloc(fastd_iface_t *iface, size_t max_len);
+	fastd_buffer_t buffer = fastd_iface_buffer_alloc(iface, max_len);
 
 	ssize_t len = read(iface->fd.fd, buffer.data, max_len);
 	if (len < 0)
@@ -442,6 +443,7 @@ void fastd_iface_uring_recv(struct uring_priv priv) {
 
 	fastd_send_data(buffer, NULL, iface->peer);
 }
+*/
 
 /** Writes a packet to the TUN/TAP device */
 void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {

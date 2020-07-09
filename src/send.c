@@ -65,6 +65,51 @@ static inline void add_pktinfo(struct msghdr *msg, const fastd_peer_address_t *l
 	}
 }
 
+void send_callback(const fastd_socket_t *sock, struct msghdr msg, fastd_peer_t *peer, int ret, fastd_buffer_t buffer, size_t stat_size) {
+	if (ret < 0 && msg.msg_controllen) {
+		switch (errno) {
+		case EINVAL:
+		case ENETUNREACH:
+			pr_debug2("sendmsg: %s (trying again without pktinfo)", strerror(errno));
+
+			if (peer && !fastd_peer_handshake_scheduled(peer))
+				fastd_peer_schedule_handshake_default(peer);
+
+			msg.msg_control = NULL;
+			msg.msg_controllen = 0;
+
+			ret = sendmsg(sock->fd.fd, &msg, 0);
+		}
+	}
+
+	if (ret < 0) {
+		switch (errno) {
+		case EAGAIN:
+#if EAGAIN != EWOULDBLOCK
+		case EWOULDBLOCK:
+#endif
+			pr_debug2_errno("sendmsg");
+			fastd_stats_add(peer, STAT_TX_DROPPED, stat_size);
+			break;
+
+		case ENETDOWN:
+		case ENETUNREACH:
+		case EHOSTUNREACH:
+			pr_debug_errno("sendmsg");
+			fastd_stats_add(peer, STAT_TX_ERROR, stat_size);
+			break;
+
+		default:
+			pr_warn_errno("sendmsg");
+			fastd_stats_add(peer, STAT_TX_ERROR, stat_size);
+		}
+	} else {
+		fastd_stats_add(peer, STAT_TX, stat_size);
+	}
+
+	fastd_buffer_free(buffer);
+}
+
 /** Sends a packet of a given type */
 static void send_type(
 	const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr,
@@ -118,53 +163,8 @@ static void send_type(
 		msg.msg_control = NULL;
 
 	int ret = sendmsg(sock->fd.fd, &msg, 0);
-	send_callback(msg, peer, ret, buffer);
+	send_callback(sock, msg, peer, ret, buffer, stat_size);
 #endif
-}
-
-void send_callback(struct msghdr msg, fastd_peer_t *peer, int ret, fastd_buffer_t buffer) {
-	if (ret < 0 && msg.msg_controllen) {
-		switch (errno) {
-		case EINVAL:
-		case ENETUNREACH:
-			pr_debug2("sendmsg: %s (trying again without pktinfo)", strerror(errno));
-
-			if (peer && !fastd_peer_handshake_scheduled(peer))
-				fastd_peer_schedule_handshake_default(peer);
-
-			msg.msg_control = NULL;
-			msg.msg_controllen = 0;
-
-			ret = sendmsg(sock->fd.fd, &msg, 0);
-		}
-	}
-
-	if (ret < 0) {
-		switch (errno) {
-		case EAGAIN:
-#if EAGAIN != EWOULDBLOCK
-		case EWOULDBLOCK:
-#endif
-			pr_debug2_errno("sendmsg");
-			fastd_stats_add(peer, STAT_TX_DROPPED, stat_size);
-			break;
-
-		case ENETDOWN:
-		case ENETUNREACH:
-		case EHOSTUNREACH:
-			pr_debug_errno("sendmsg");
-			fastd_stats_add(peer, STAT_TX_ERROR, stat_size);
-			break;
-
-		default:
-			pr_warn_errno("sendmsg");
-			fastd_stats_add(peer, STAT_TX_ERROR, stat_size);
-		}
-	} else {
-		fastd_stats_add(peer, STAT_TX, stat_size);
-	}
-
-	fastd_buffer_free(buffer);
 }
 
 /** Sends a payload packet */

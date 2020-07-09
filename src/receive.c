@@ -229,7 +229,7 @@ static inline void handle_socket_receive(
 
 void fastd_receive_callback(fastd_socket_t *sock, struct msghdr message, int len, fastd_buffer_t buffer) {
 	fastd_peer_address_t local_addr;
-	fastd_peer_address_t recvaddr = *(message.msg_name);
+	fastd_peer_address_t recvaddr = *((fastd_peer_address_t*) message.msg_name);
 
 	if (len <= 0) {
 		if (len < 0)
@@ -277,7 +277,7 @@ void fastd_receive(fastd_socket_t *sock) {
 
 	ssize_t len = recvmsg(sock->fd.fd, &message, 0);
 
-	fastd_receive_callback(sock, message, len, fastd_buffer_t buffer);	
+	fastd_receive_callback(sock, message, len, buffer);	
 }
 
 /** Handles a received and decrypted payload packet */
