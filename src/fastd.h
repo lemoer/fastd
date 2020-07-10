@@ -600,3 +600,5 @@ static inline bool fastd_use_android_integration(void) {
 	return false;
 #endif
 }
+
+fastd_buffer_t fastd_iface_buffer_alloc(fastd_iface_t *iface, size_t max_len);

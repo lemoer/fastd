@@ -39,3 +39,8 @@ void fastd_uring_sock_sendmsg(fastd_socket_t *sock, const fastd_peer_address_t *
 void fastd_uring_fd_register(fastd_poll_fd_t *fd);
 bool fastd_uring_fd_close(fastd_poll_fd_t *fd);
 void fastd_uring_handle(void);
+
+
+// this is imported from external stuff
+fastd_buffer_t fastd_iface_buffer_alloc(fastd_iface_t *iface, size_t max_len);
+void fastd_receive_callback(fastd_socket_t *sock, struct msghdr message, int len, fastd_buffer_t buffer);
