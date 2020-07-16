@@ -85,9 +85,15 @@ static inline void handle_fd(fastd_poll_fd_t *fd, bool input, bool error) {
 
 		break;
 	}
+	
+	case POLL_TYPE_URING: {
+		fastd_uring_handle();
+		break;
+	}
 
 	default:
-		exit_bug("unknown FD type");
+		pr_debug("poll");
+		pr_debug("unknown FD type %i", fd->type);
 	}
 
 	if (error)
@@ -110,6 +116,7 @@ static inline int epoll_wait_unblocked(int epfd, struct epoll_event *events, int
 
 
 void fastd_poll_init(void) {
+	pr_debug("POLLINIT\n");
 	ctx.epoll_fd = epoll_create(1);
 	if (ctx.epoll_fd < 0)
 		exit_errno("epoll_create1");
@@ -122,6 +129,7 @@ void fastd_poll_free(void) {
 
 
 void fastd_poll_fd_register(fastd_poll_fd_t *fd) {
+	pr_debug("POLLREGISTER\n");
 	if (fd->fd < 0)
 		exit_bug("fastd_poll_fd_register: invalid FD");
 
@@ -143,6 +151,7 @@ bool fastd_poll_fd_close(fastd_poll_fd_t *fd) {
 
 
 void fastd_poll_handle(void) {
+	pr_debug("POLLHANDLE\n");
 	int timeout = task_timeout();
 
 	struct epoll_event events[16];

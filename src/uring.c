@@ -20,7 +20,7 @@
  * the result in the completion queue.
  ***/
 
-#include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <liburing.h>
 #include "uring.h"
 #include "async.h"
@@ -30,6 +30,8 @@
 #define MAX_URING_SIZE 256		/**/
 #define MAX_READ_SUBMISSIONS 64		/**/
 #define MAX_PACKETS			/**/
+
+
 
 /** Returns the time to the next task or -1 */
 static inline int task_timeout(void) {
@@ -62,57 +64,9 @@ static inline void uring_priv_free(struct fastd_uring_priv *priv) {
 	free(priv);
 }
 
-/** Handles a file descriptor that was selected on by poll.c or uring.c */
-static inline void fastd_handle_poll_fd(fastd_poll_fd_t *fd, bool input, bool error) {
-	/* NOTE: Used as a helper function by uring.c */
-	switch (fd->type) {
-	case POLL_TYPE_ASYNC:
-		if (input)
-			fastd_async_handle();
-		break;
-
-	case POLL_TYPE_STATUS:
-		if (input)
-			fastd_status_handle();
-		break;
-
-	case POLL_TYPE_IFACE: {
-		fastd_iface_t *iface = container_of(fd, fastd_iface_t, fd);
-
-		if (input)
-			fastd_iface_handle(iface);
-
-		break;
-	}
-
-	case POLL_TYPE_SOCKET: {
-		fastd_socket_t *sock = container_of(fd, fastd_socket_t, fd);
-
-		if (error) {
-			if (sock->peer)
-				fastd_peer_reset_socket(sock->peer);
-			else
-				fastd_socket_error(sock);
-
-			return;
-		}
-
-		if (input)
-			fastd_receive(sock);
-
-		break;
-	}
-
-	default:
-		exit_bug("unknown FD type");
-	}
-
-	if (error)
-		exit_error("unexpected poll error");
-}
-
 static inline void uring_submit_priv(struct io_uring_sqe *sqe, struct fastd_uring_priv *priv) {
 	io_uring_sqe_set_data(sqe, priv);
+	pr_debug("setting data pointer %p\n", priv);
 
 	if(ctx.uring_params.features & IORING_FEAT_FAST_POLL) {
 		/* In fast poll mode we don't need to submit often
@@ -200,7 +154,7 @@ void fastd_uring_recvmsg(fastd_poll_fd_t *fd, struct msghdr *msg, int flags, voi
 	struct io_uring_sqe *sqe = uring_get_sqe();
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_INPUT, data, cb);
 
-	io_uring_prep_recvmsg(sqe, fd->fd, msg, 0);
+	io_uring_prep_recvmsg(sqe, fd->fd, msg, flags);
 	uring_submit_priv(sqe, priv);
 }
 
@@ -213,7 +167,7 @@ void fastd_uring_sendmsg(fastd_poll_fd_t *fd, const struct msghdr *msg, int flag
 	struct io_uring_sqe *sqe = uring_get_sqe();
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_OUTPUT, data, cb);
 
-	io_uring_prep_sendmsg(sqe, fd->fd, msg, 0);
+	io_uring_prep_sendmsg(sqe, fd->fd, msg, flags);
 	uring_submit_priv(sqe, priv);
 }
 
@@ -287,23 +241,15 @@ static const char *op_strs[] = {
 static inline int uring_is_supported() {
 	struct io_uring_probe *probe = io_uring_get_probe();
 
-	if (!probe) {
-		ctx.func_recvmsg = &fastd_uring_recvmsg_unsupported;
-		ctx.func_sendmsg = &fastd_uring_sendmsg_unsupported;
-		ctx.func_read = &fastd_uring_read_unsupported;
-		ctx.func_write = &fastd_uring_write_unsupported;
-
-		fastd_poll_init();
-
+	if (!probe)
 		return 0;
-	}
 
-	printf("Supported io_uring operations:");
+	pr_debug("Supported io_uring operations:");
 	for (int i = 0; i < IORING_OP_LAST; i++)
 		if(io_uring_opcode_supported(probe, i))
-			printf("%s", op_strs[i]);
+			pr_debug("%s", op_strs[i]);
 
-	printf("\n");
+	pr_debug("\n");
 
 	free(probe);
 
@@ -311,42 +257,6 @@ static inline int uring_is_supported() {
 }
 
 
-void fastd_uring_init(void) {
-	if (!uring_is_supported()) {
-		ctx.func_recvmsg = &fastd_uring_recvmsg_unsupported;
-		ctx.func_sendmsg = &fastd_uring_sendmsg_unsupported;
-		ctx.func_read = &fastd_uring_read_unsupported;
-		ctx.func_write = &fastd_uring_write_unsupported;
-		ctx.func_fd_register = &fastd_poll_fd_register;
-		ctx.func_fd_close = &fastd_poll_fd_close;
-		fastd_poll_init();
-
-		return;
-	}
-
-	ctx.func_recvmsg = &fastd_uring_recvmsg;
-	ctx.func_sendmsg = &fastd_uring_sendmsg;
-	ctx.func_read = &fastd_uring_read;
-	ctx.func_write = &fastd_uring_write;
-	ctx.func_fd_register = &fastd_uring_fd_register;
-	ctx.func_fd_close = &fastd_uring_fd_close;
-
-	memset(&ctx.uring_params, 0, sizeof(ctx.uring_params));
-	/* TODO: Try SQPOLL mode - needs privileges
-	if (!geteuid()) {
-		fprint("uring: Activating SQPOLL mode - Experimental! \n");
-		ctx.uring_params.flags |= IORING_SETUP_SQPOLL;
-		ctx.uring_params.sq_thread_idle = 8000;
-	}*/
-
-	if (io_uring_queue_init_params(MAX_URING_SIZE, &ctx.uring, &ctx.uring_params) < 0)
-        	exit_bug("uring init failed");
-
-	/* TODO: Find more about FAST_POLL and try to fix it */
-	if (!(ctx.uring_params.features & IORING_FEAT_FAST_POLL))
-		printf("uring fast poll not supported by the kernel.");
-
-}
 
 void fastd_uring_free(void) {
 	/* TODO: Find out if it triggers error cqes and if our privs get freed */
@@ -355,31 +265,34 @@ void fastd_uring_free(void) {
 
 /* creates a new URING_INPUT submission */
 static inline void uring_sqe_input(fastd_poll_fd_t *fd) {
+	pr_debug("sqe input");
 	switch(fd->type) {
 	case POLL_TYPE_IFACE: {
 			fastd_iface_t *iface = container_of(fd, fastd_iface_t, fd);
-
+			pr_debug("iface handle \n");
 			fastd_iface_handle(iface);
-
+			pr_debug("iface handle2 \n");
 			break;
 		}
 	case POLL_TYPE_SOCKET: {
 			fastd_socket_t *sock = container_of(fd, fastd_socket_t, fd);
-
+			pr_debug("socket handle \n");
 			fastd_receive(sock);
 
 			break;
 		}
 	case POLL_TYPE_ASYNC:
+		pr_debug("async handle \n");
 		fastd_async_handle();
 
 		break;
 	case POLL_TYPE_STATUS:
+		pr_debug("status handle \n");
 		fastd_status_handle();
 
 		break;
 	default:
-		exit_bug("unknown FD type");
+		pr_debug("unknown FD type %i", fd->type);
 	}
 }
 
@@ -387,7 +300,19 @@ static inline void uring_sqe_input(fastd_poll_fd_t *fd) {
 static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 	struct fastd_uring_priv *priv = (struct fastd_uring_priv *)io_uring_cqe_get_data(cqe);
 
+	pr_debug("handle cqe %i\n", cqe->res);
+
+	if(priv == ~0) {
+		pr_debug("err no priv\n");
+		return;
+	}
+
+	pr_debug("priv %p\n", priv);
+	pr_debug("fd type %i\n", priv->fd->type);
+
 	priv->caller_func(cqe->res, priv->caller_priv);
+	
+	pr_debug("called\n");
 
 	/* FIXME: we should not reset the connection more than once, but we need
 	 * to go through every outstanding completion to free the privs.
@@ -409,12 +334,13 @@ static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 	if (priv->action == URING_OUTPUT)
 		goto free;
 
+	pr_debug("priv_fd_type %i", priv->fd->type);
+	
 	uring_sqe_input(priv->fd);
-
-	io_uring_cqe_seen(&ctx.uring, cqe);
 
 free:
 	uring_priv_free(priv);
+	pr_debug("freed \n");
 }
 
 /* Initializes the fds and generates input cqes */
@@ -422,27 +348,36 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 	if (fd->fd < 0)
 		exit_bug("fastd_uring_fd_register: invalid FD");
 
-	/* register the file descriptor as a "fixed file" */
-	if(POLL_TYPE_IFACE == fd->type)
-		uring_iface_register(fd);
 
 	switch(fd->type) {
-	case POLL_TYPE_SOCKET:
-	case POLL_TYPE_IFACE: {
-			
+	case POLL_TYPE_IFACE:
+			/* FIXME register the file descriptor as a "fixed file" */
+			pr_debug("Setting iface input \n");
+			uring_iface_register(fd);
+			uring_sqe_input(fd);
+			break;
+	case POLL_TYPE_SOCKET: {
+			pr_debug("Setting sock input \n");
 			/* fill the submission queue with many read submissions */
-			for(int i = 0; i < MAX_READ_SUBMISSIONS; i++)
-				uring_sqe_input(fd);
+			/* FIXME
+			for(int i = 0; i < 1; i++)
+				
+			*/
+			uring_sqe_input(fd);
 			break;
 		}
 	case POLL_TYPE_ASYNC:
+		pr_debug("Setting async input \n");
 	case POLL_TYPE_STATUS:
-		fastd_handle_poll_fd(fd, true, false);
+		pr_debug("Setting status input \n");
+		uring_sqe_input(fd);
 
 		break;
 	default:
-		exit_bug("unknown FD type");
+		pr_debug("uring wrong fd type received %i", fd->type);
+		break;
 	}
+	 io_uring_submit(&ctx.uring);
 }
 
 bool fastd_uring_fd_close(fastd_poll_fd_t *fd) {
@@ -451,27 +386,118 @@ bool fastd_uring_fd_close(fastd_poll_fd_t *fd) {
 	return (close(fd->fd) == 0);
 }
 
+void fastd_uring_eventfd() {
+	ctx.uring_fd = FASTD_POLL_FD(POLL_TYPE_URING, eventfd(0, 0));
+	if (ctx.uring_fd.fd < 0)
+		exit_bug("eventfd");
+}
+
 void fastd_uring_handle(void) {
 	struct io_uring_cqe *cqe;
 	struct io_uring_cqe *cqes[MAX_URING_BACKLOG_SIZE];
-	int timeout = task_timeout();
+	pr_debug("ha1");
+	
+	int timeout = 10000; //task_timeout();
 	int cqe_count, ret, i;
+	struct __kernel_timespec ts = { .tv_sec = timeout / 1000, .tv_nsec = (timeout % 1000) * 1000 };
 
-	struct __kernel_timespec ts = {
-		.tv_sec = timeout / 1000,
-		.tv_nsec = (timeout % 1000) * 1000,
-	};
+	pr_debug("ha2");
 
-	ret = io_uring_wait_cqe_timeout(&ctx.uring, &cqe, &ts);
-	if (ret < 0)
-	    exit_bug("uring_wait_cqe_timeout failed");
+	pr_debug("update time2\n");
+	//cqe_count = io_uring_peek_batch_cqe(&ctx.uring, cqes, sizeof(cqes) / sizeof(cqes[0]));
+	pr_debug("update time3 %i\n", cqe_count);
+	
+	while(timeout > 2000) {
+		timeout = task_timeout();
+		pr_debug(" time remaining %i\n", timeout);
 
-	fastd_update_time();
+		ret = io_uring_wait_cqe_timeout(&ctx.uring, &cqe, &ts);
+		if (ret < 0) {
+			pr_debug("uring wait without results %s %i", strerror(-ret), ret);
+			pr_debug("uring wait without results %i", ret);
+		} else {
+			uring_cqe_handle(cqe);
+			io_uring_cqe_seen(&ctx.uring, cqe);
+		}
 
-	cqe_count = io_uring_peek_batch_cqe(&ctx.uring, cqes, sizeof(cqes) / sizeof(cqes[0]));
+		pr_debug("sleep a sec");
+			
+		pr_debug("update time\n");
+		fastd_update_time();
 
-	for (i = 0; i < cqe_count; ++i)
+		timeout = task_timeout();
+		ts.tv_sec = timeout / 1000;
+		ts.tv_nsec = (timeout % 1000) * 1000;
+	}
+/*	ret = io_uring_submit(&ctx.uring);
+	for (i = 0; i < cqe_count; ++i) {
 		uring_cqe_handle(cqes[i]);
+		pr_debug("seen1\n");
+		io_uring_cqe_seen(&ctx.uring, cqes[i]);
+		pr_debug("seen2\n");
+	}
+*/
+	pr_debug("cqe seen \n");
+	
+	/*
+	ret = io_uring_submit(&ctx.uring);
+	if (ret <= 0) {
+		pr_debug("sqe submit failed: %d\n", ret);
+		exit_bug("qse submit");
+	}*/
 
-	io_uring_submit(&ctx.uring);
+	pr_debug("update time4\n");
+	pr_debug("update time5\n");
 }
+
+void fastd_uring_init(void) {
+	if (!uring_is_supported()) {
+		ctx.func_recvmsg = fastd_uring_recvmsg_unsupported;
+		ctx.func_sendmsg = fastd_uring_sendmsg_unsupported;
+		ctx.func_read = fastd_uring_read_unsupported;
+		ctx.func_write = fastd_uring_write_unsupported;
+		ctx.func_fd_register = fastd_poll_fd_register;
+		ctx.func_fd_close = fastd_poll_fd_close;
+		ctx.func_io_handle = fastd_poll_handle;
+		ctx.func_io_free = fastd_poll_free;
+		fastd_poll_init();
+
+		return;
+	}
+
+	fastd_poll_init();
+
+	pr_debug("Setting function pointers\n");
+
+	ctx.func_recvmsg = fastd_uring_recvmsg_unsupported;
+	ctx.func_sendmsg = fastd_uring_sendmsg_unsupported;
+	ctx.func_read = fastd_uring_read;
+	ctx.func_write = fastd_uring_write;
+	ctx.func_fd_register = fastd_poll_fd_register;
+	ctx.func_fd_close = fastd_poll_fd_close;
+	ctx.func_io_handle = fastd_poll_handle;
+	ctx.func_io_free = fastd_poll_free;
+
+	memset(&ctx.uring_params, 0, sizeof(ctx.uring_params));
+	/* TODO: Try SQPOLL mode - needs privileges
+	if (!geteuid()) {
+		fprint("uring: Activating SQPOLL mode - Experimental! \n");
+		ctx.uring_params.flags |= IORING_SETUP_SQPOLL;
+		ctx.uring_params.sq_thread_idle = 8000;
+	}*/
+
+	pr_debug("Initializing uring queue\n");
+
+	if (io_uring_queue_init_params(MAX_URING_SIZE, &ctx.uring, &ctx.uring_params) < 0)
+        	exit_bug("uring init failed");
+
+	/* TODO: Find more about FAST_POLL and try to fix it */
+	if (!(ctx.uring_params.features & IORING_FEAT_FAST_POLL))
+		pr_debug("uring fast poll not supported by the kernel.");
+		
+
+	fastd_uring_eventfd();
+	fastd_poll_fd_register(&ctx.uring_fd);
+	io_uring_register_eventfd(&ctx.uring, ctx.uring_fd.fd);
+}
+

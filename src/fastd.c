@@ -589,10 +589,19 @@ static inline void handle_signals(void) {
 
 /** A single iteration of fastd's main loop */
 static inline void run(void) {
+	pr_debug("task handle");
 	fastd_task_handle();
+	pr_debug("task handled");
+
+#ifdef HAVE_LIBURING
+	//FIXMEfastd_uring_handle();
+		fastd_poll_handle();
+#else
 	fastd_poll_handle();
+#endif
 
 	handle_signals();
+	pr_debug("signals handled");
 }
 
 /** Removes all peers */
@@ -620,7 +629,11 @@ static inline void cleanup(void) {
 
 	fastd_status_close();
 	close_sockets();
+#ifdef HAVE_LIBURING
+	ctx.func_io_free();
+#else
 	fastd_poll_free();
+#endif
 
 	on_post_down();
 

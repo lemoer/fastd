@@ -26,7 +26,11 @@ static int bind_socket(const fastd_bind_address_t *addr) {
 	int af = AF_UNSPEC;
 
 	if (addr->addr.sa.sa_family != AF_INET) {
+#ifdef HAVE_LIBURING
+		fd = socket(PF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+#else
 		fd = socket(PF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
+#endif
 		if (fd >= 0) {
 			af = AF_INET6;
 
@@ -38,7 +42,11 @@ static int bind_socket(const fastd_bind_address_t *addr) {
 		}
 	}
 	if (fd < 0 && addr->addr.sa.sa_family != AF_INET6) {
+#ifdef HAVE_LIBURING
+		fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+#else
 		fd = socket(PF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
+#endif
 		if (fd < 0)
 			exit_errno("unable to create socket");
 		else
@@ -192,8 +200,11 @@ void fastd_socket_bind_all(void) {
 			pr_info("bound to %B on `%s'", &bound_addr, sock->addr->bindtodev);
 		else
 			pr_info("bound to %B", &bound_addr);
-
+#ifdef HAVE_LIBURING
+		ctx.func_fd_register(&sock->fd);
+#else
 		fastd_poll_fd_register(&sock->fd);
+#endif
 	}
 }
 
@@ -228,7 +239,11 @@ fastd_socket_t *fastd_socket_open(fastd_peer_t *peer, int af) {
 
 	set_bound_address(sock);
 
+#ifdef HAVE_LIBURING
+	ctx.func_fd_register(&sock->fd);
+#else
 	fastd_poll_fd_register(&sock->fd);
+#endif
 
 	return sock;
 }
@@ -236,7 +251,11 @@ fastd_socket_t *fastd_socket_open(fastd_peer_t *peer, int af) {
 /** Closes a socket */
 void fastd_socket_close(fastd_socket_t *sock) {
 	if (sock->fd.fd >= 0) {
+#ifdef HAVE_LIBURING
+		if (!ctx.func_fd_close(&sock->fd))
+#else
 		if (!fastd_poll_fd_close(&sock->fd))
+#endif
 			pr_error_errno("closing socket: close");
 
 		sock->fd.fd = -1;

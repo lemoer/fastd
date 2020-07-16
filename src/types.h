@@ -66,6 +66,7 @@ typedef enum fastd_poll_type {
 	POLL_TYPE_STATUS,     /**< The status socket */
 	POLL_TYPE_IFACE,      /**< A TUN/TAP interface */
 	POLL_TYPE_SOCKET,     /**< A network socket */
+	POLL_TYPE_URING,     /**< An io_uring eventfd */
 } fastd_poll_type_t;
 
 
