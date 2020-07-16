@@ -436,8 +436,10 @@ void fastd_iface_handle_callback(ssize_t len, void *p) {
 	struct iface_priv *priv = p;
 #endif
 	pr_debug("iface read callback \n");
-	if (len < 0)
-		exit_errno("read");
+	if (len < 0) {
+		pr_debug("read callback error");
+		goto free;
+		}
 
 	priv->buffer.len = len;
 
@@ -446,11 +448,10 @@ void fastd_iface_handle_callback(ssize_t len, void *p) {
 
 	fastd_send_data(priv->buffer, NULL, priv->iface->peer);
 
-/*FIXME priv can be freed after send only
-
+free:
 #ifdef HAVE_LIBURING
 	free(priv);
-#endif*/
+#endif
 }
 
 #ifdef HAVE_LIBURING

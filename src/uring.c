@@ -309,8 +309,16 @@ static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 
 	pr_debug("priv %p\n", priv);
 	pr_debug("fd type %i\n", priv->fd->type);
-
+	
+	if (priv->action == URING_OUTPUT)
+		pr_debug("output\n");
+		
 	priv->caller_func(cqe->res, priv->caller_priv);
+	
+	if (cqe->res < 0) {
+		pr_debug("CQE failed %s\n", strerror(-cqe->res));
+		goto input;
+	}
 	
 	pr_debug("called\n");
 
@@ -335,7 +343,8 @@ static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 		goto free;
 
 	pr_debug("priv_fd_type %i", priv->fd->type);
-	
+
+input:
 	uring_sqe_input(priv->fd);
 
 free:
@@ -407,7 +416,8 @@ void fastd_uring_handle(void) {
 	int cqe_count, ret, i;
 	struct __kernel_timespec ts = { .tv_sec = timeout / 1000, .tv_nsec = (timeout % 1000) * 1000 };
 
-	while(io_uring_cq_ready(&ctx.uring)) {
+	cqe_count = io_uring_cq_ready(&ctx.uring);
+	while(timeout > 1000 && cqe_count) {
 		ret = io_uring_wait_cqe_timeout(&ctx.uring, &cqe, &ts);
 		if (ret < 0) {
 			pr_debug("uring wait without results %s %i", strerror(-ret), ret);
