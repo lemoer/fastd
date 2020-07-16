@@ -589,9 +589,8 @@ static inline void handle_signals(void) {
 
 /** A single iteration of fastd's main loop */
 static inline void run(void) {
-	pr_debug("task handle");
+
 	fastd_task_handle();
-	pr_debug("task handled");
 
 #ifdef HAVE_LIBURING
 	//FIXMEfastd_uring_handle();
@@ -601,7 +600,7 @@ static inline void run(void) {
 #endif
 
 	handle_signals();
-	pr_debug("signals handled");
+
 }
 
 /** Removes all peers */

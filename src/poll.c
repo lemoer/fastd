@@ -151,7 +151,6 @@ bool fastd_poll_fd_close(fastd_poll_fd_t *fd) {
 
 
 void fastd_poll_handle(void) {
-	pr_debug("POLLHANDLE\n");
 	int timeout = task_timeout();
 
 	struct epoll_event events[16];

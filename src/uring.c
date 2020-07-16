@@ -354,7 +354,9 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 			/* FIXME register the file descriptor as a "fixed file" */
 			pr_debug("Setting iface input \n");
 			uring_iface_register(fd);
-			uring_sqe_input(fd);
+			for(int i = 0; i < 64; i++)
+				uring_sqe_input(fd);
+
 			break;
 	case POLL_TYPE_SOCKET: {
 			pr_debug("Setting sock input \n");
@@ -392,43 +394,39 @@ void fastd_uring_eventfd() {
 		exit_bug("eventfd");
 }
 
+void fastd_uring_eventfd_read() {
+	eventfd_t v;
+	int ret = eventfd_read(ctx.uring_fd.fd, &v);
+	if (ret < 0) exit_bug("eventfd_read");
+}
+
 void fastd_uring_handle(void) {
 	struct io_uring_cqe *cqe;
 	struct io_uring_cqe *cqes[MAX_URING_BACKLOG_SIZE];
-	pr_debug("ha1");
-	
-	int timeout = 10000; //task_timeout();
+	int timeout = task_timeout(); //task_timeout();
 	int cqe_count, ret, i;
 	struct __kernel_timespec ts = { .tv_sec = timeout / 1000, .tv_nsec = (timeout % 1000) * 1000 };
 
-	pr_debug("ha2");
-
-	pr_debug("update time2\n");
-	//cqe_count = io_uring_peek_batch_cqe(&ctx.uring, cqes, sizeof(cqes) / sizeof(cqes[0]));
-	pr_debug("update time3 %i\n", cqe_count);
-	
-	while(timeout > 2000) {
-		timeout = task_timeout();
-		pr_debug(" time remaining %i\n", timeout);
-
+	while(io_uring_cq_ready(&ctx.uring)) {
 		ret = io_uring_wait_cqe_timeout(&ctx.uring, &cqe, &ts);
 		if (ret < 0) {
 			pr_debug("uring wait without results %s %i", strerror(-ret), ret);
 			pr_debug("uring wait without results %i", ret);
+			break;
 		} else {
 			uring_cqe_handle(cqe);
 			io_uring_cqe_seen(&ctx.uring, cqe);
 		}
-
-		pr_debug("sleep a sec");
-			
-		pr_debug("update time\n");
+		cqe_count--;
+		
 		fastd_update_time();
 
 		timeout = task_timeout();
 		ts.tv_sec = timeout / 1000;
 		ts.tv_nsec = (timeout % 1000) * 1000;
 	}
+	
+	fastd_uring_eventfd_read();
 /*	ret = io_uring_submit(&ctx.uring);
 	for (i = 0; i < cqe_count; ++i) {
 		uring_cqe_handle(cqes[i]);
@@ -437,17 +435,13 @@ void fastd_uring_handle(void) {
 		pr_debug("seen2\n");
 	}
 */
-	pr_debug("cqe seen \n");
 	
-	/*
-	ret = io_uring_submit(&ctx.uring);
+	
+	/*ret = io_uring_submit(&ctx.uring);
 	if (ret <= 0) {
 		pr_debug("sqe submit failed: %d\n", ret);
-		exit_bug("qse submit");
 	}*/
 
-	pr_debug("update time4\n");
-	pr_debug("update time5\n");
 }
 
 void fastd_uring_init(void) {
