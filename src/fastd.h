@@ -317,6 +317,9 @@ struct fastd_context {
 	void (*func_write)(fastd_poll_fd_t *, const void *, size_t, void *, void (*)(ssize_t, void *));
 	void (*func_fd_register)(fastd_poll_fd_t *);
 	bool (*func_fd_close)(fastd_poll_fd_t *);
+	void (*func_io_handle)(void);
+	void (*func_io_free)(void);
+	fastd_poll_fd_t uring_fd;
 #endif
 #ifdef USE_EPOLL
 	int epoll_fd; /**< The file descriptor for the epoll facility */

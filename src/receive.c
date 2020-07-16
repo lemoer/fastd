@@ -236,7 +236,6 @@ struct receive_priv {
 	fastd_peer_address_t recvaddr;
 	struct iovec buffer_vec;
 	struct msghdr message;
-	int len;
 };
 
 #ifdef HAVE_LIBURING
@@ -257,6 +256,7 @@ void fastd_receive(fastd_socket_t *sock) {
 	priv->buffer = fastd_buffer_alloc(priv->max_len, conf.min_decrypt_head_space, conf.min_decrypt_tail_space);
 	priv->buffer_vec.iov_base = priv->buffer.data;
 	priv->buffer_vec.iov_len = priv->buffer.len;
+	priv->sock = sock;
 
 	priv->message.msg_name = &priv->recvaddr;
 	priv->message.msg_namelen = sizeof(priv->recvaddr);
@@ -269,7 +269,7 @@ void fastd_receive(fastd_socket_t *sock) {
 #ifndef HAVE_LIBURING
 	ssize_t len = recvmsg(sock->fd.fd, &message, 0);
 #else
-	ctx.func_recvmsg(&sock->fd, &priv->message, 0, priv, &fastd_receive_callback);
+	ctx.func_recvmsg(&sock->fd, &priv->message, MSG_WAITALL, priv, fastd_receive_callback);
 }
 
 void fastd_receive_callback(ssize_t len, void *p) {
@@ -278,14 +278,14 @@ void fastd_receive_callback(ssize_t len, void *p) {
 	if (len <= 0) {
 		if (len < 0)
 			pr_warn_errno("recvmsg");
-
-		if (priv->sock->peer)
+		pr_debug("fastd_receive_callback err");
+		if (priv->sock->peer) {
 			fastd_peer_reset_socket(priv->sock->peer);
-		else
+		} else {
 			fastd_socket_error(priv->sock);
-
-		fastd_buffer_free(priv->buffer);
-		return;
+		}
+		pr_debug("fastd_receive_callback out");
+		goto out;
 	}
 
 	priv->buffer.len = len;
@@ -295,8 +295,7 @@ void fastd_receive_callback(ssize_t len, void *p) {
 #ifdef USE_PKTINFO
 	if (!priv->local_addr.sa.sa_family) {
 		pr_error("received packet without packet info");
-		fastd_buffer_free(priv->buffer);
-		return;
+		goto out;
 	}
 #endif
 
@@ -305,8 +304,12 @@ void fastd_receive_callback(ssize_t len, void *p) {
 
 	handle_socket_receive(priv->sock, &priv->local_addr, &priv->recvaddr, priv->buffer);
 
+out:
 #ifdef HAVE_LIBURING
+	fastd_buffer_free(priv->buffer);
+	pr_debug("fastd_receive_callback free1");
 	free(priv);
+	pr_debug("fastd_receive_callback free2");
 #endif
 }
 

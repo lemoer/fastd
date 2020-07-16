@@ -79,7 +79,11 @@ static void cleanup_iface(fastd_iface_t *iface);
 static bool open_iface_linux(fastd_iface_t *iface, const char *ifname, uint16_t mtu, const char *dev_name) {
 	struct ifreq ifr = {};
 
+#ifdef HAVE_LIBURING
 	iface->fd = FASTD_POLL_FD(POLL_TYPE_IFACE, open(dev_name, O_RDWR | O_NONBLOCK));
+#else
+	iface->fd = FASTD_POLL_FD(POLL_TYPE_IFACE, open(dev_name, O_RDWR | O_NONBLOCK));
+#endif
 	if (iface->fd.fd < 0)
 		exit_errno("could not open TUN/TAP device file");
 
@@ -415,6 +419,8 @@ void fastd_iface_handle(fastd_iface_t *iface) {
 #endif
 	size_t max_len = fastd_max_payload(iface->mtu);
 
+	priv->iface = iface;
+
 	if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN)
 		priv->buffer = fastd_buffer_alloc(max_len + 4, conf.min_encrypt_head_space + 12, conf.min_encrypt_tail_space);
 	else
@@ -429,6 +435,7 @@ void fastd_iface_handle(fastd_iface_t *iface) {
 void fastd_iface_handle_callback(ssize_t len, void *p) {
 	struct iface_priv *priv = p;
 #endif
+	pr_debug("iface read callback \n");
 	if (len < 0)
 		exit_errno("read");
 
@@ -439,9 +446,11 @@ void fastd_iface_handle_callback(ssize_t len, void *p) {
 
 	fastd_send_data(priv->buffer, NULL, priv->iface->peer);
 
+/*FIXME priv can be freed after send only
+
 #ifdef HAVE_LIBURING
 	free(priv);
-#endif
+#endif*/
 }
 
 #ifdef HAVE_LIBURING
@@ -455,7 +464,7 @@ void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {
 		pr_debug("fastd_iface_write: truncated packet");
 		return;
 	}
-
+	pr_debug("iface write callback \n");
 	if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN) {
 		uint8_t version = *((uint8_t *)buffer.data) >> 4;
 		uint32_t af;
@@ -484,6 +493,7 @@ void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {
 
 #else
 	ctx.func_write(&iface->fd, buffer.data, buffer.len, NULL, fastd_iface_write_callback);
+	pr_debug("iface write callback end\n");
 }
 
 void fastd_iface_write_callback(ssize_t ret, void *p) {
@@ -567,7 +577,8 @@ fastd_iface_t *fastd_iface_open(fastd_peer_t *peer) {
 		pr_debug("TUN/TAP device initialized.");
 
 #ifdef HAVE_LIBURING
-	ctx.func_fd_register(&iface->fd);
+	fastd_uring_fd_register(&iface->fd);
+	//FIXME ctx.func_fd_register(&iface->fd);
 #else
 	fastd_poll_fd_register(&iface->fd);
 #endif
@@ -577,7 +588,11 @@ fastd_iface_t *fastd_iface_open(fastd_peer_t *peer) {
 
 /** Closes the TUN/TAP device */
 void fastd_iface_close(fastd_iface_t *iface) {
-	if (fastd_poll_fd_close(&iface->fd))
+#ifdef HAVE_LIBURING
+	if (!ctx.func_fd_close(&iface->fd))
+#else
+	if (!fastd_poll_fd_close(&iface->fd))
+#endif
 		cleanup_iface(iface);
 	else
 		pr_warn_errno("closing TUN/TAP: close");

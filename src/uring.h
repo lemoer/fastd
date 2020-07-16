@@ -21,6 +21,7 @@ struct fastd_uring_priv {
 	void *caller_priv;
 };
 
+void fastd_uring_preinit(void);
 void fastd_uring_init(void);
 void fastd_uring_free(void);
 

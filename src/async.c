@@ -27,7 +27,12 @@ typedef struct fastd_async_hdr {
 /** Initializes the async notification sockets */
 void fastd_async_init(void) {
 	int fds[2];
-
+#ifdef HAVE_LIBURING
+	/* for uring we need blocking reads */
+	/* use socketpair with SOCK_DGRAM instead of pipe2 with O_DIRECT to keep this portable */
+	if (socketpair(AF_UNIX, SOCK_DGRAM, 0, fds))
+		exit_errno("socketpair");
+#else
 	/* use socketpair with SOCK_DGRAM instead of pipe2 with O_DIRECT to keep this portable */
 	if (socketpair(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK, 0, fds))
 		exit_errno("socketpair");
@@ -36,7 +41,7 @@ void fastd_async_init(void) {
 	fastd_setnonblock(fds[0]);
 	fastd_setnonblock(fds[1]);
 #endif
-
+#endif
 	ctx.async_rfd = FASTD_POLL_FD(POLL_TYPE_ASYNC, fds[0]);
 	ctx.async_wfd = fds[1];
 
@@ -64,18 +69,20 @@ static void handle_resolve_return(const fastd_async_resolve_return_t *resolve_re
 
 /** Handles a on-verify response */
 static void handle_verify_return(const fastd_async_verify_return_t *verify_return) {
+	pr_debug("verify_return");
 	fastd_peer_t *peer = fastd_peer_find_by_id(verify_return->peer_id);
 	if (!peer)
 		return;
-
+	pr_debug("verify_return2");
 	if (!fastd_peer_is_dynamic(peer))
 		exit_bug("verify return for permanent peer");
-
+	pr_debug("verify_return3");
 	fastd_peer_set_verified(peer, verify_return->ok);
-
+	pr_debug("verify_return4");
 	conf.protocol->handle_verify_return(
 		peer, verify_return->sock, &verify_return->local_addr, &verify_return->remote_addr,
 		verify_return->protocol_data, verify_return->ok);
+	pr_debug("verify_return exit");
 }
 
 #endif
@@ -118,8 +125,13 @@ void fastd_async_handle_callback_first(ssize_t ret, void *p) {
 	struct async_priv *priv = p;
 #endif
 
-	if (ret < 0)
-		exit_errno("fastd_async_handle: recvmsg");
+	if (ret < 0) {
+		pr_debug("async fail");
+		free(priv);
+		//exit_errno("fastd_async_handle: recvmsg");
+		return;
+	}
+	
 
 #ifdef HAVE_LIBURING
 	priv->buf = fastd_alloc_aligned(priv->header.len, 16);

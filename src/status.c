@@ -271,7 +271,11 @@ void fastd_status_close(void) {
 	if (!conf.status_socket || ctx.status_fd.fd < 0)
 		return;
 
+#ifdef HAVE_LIBURING
+	if (!ctx.func_fd_close(&ctx.status_fd))
+#else
 	if (!fastd_poll_fd_close(&ctx.status_fd))
+#endif
 		pr_warn_errno("fastd_status_cleanup: close");
 
 	unlink_status_socket();

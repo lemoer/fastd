@@ -86,6 +86,7 @@ void fastd_send_callback_first(ssize_t ret, void *p);
 static void send_type(
 	const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr,
 	fastd_peer_t *peer, uint8_t packet_type, fastd_buffer_t buffer, size_t stat_size) {
+pr_debug("send type");
 	if (!sock)
 		exit_bug("send: sock == NULL");
 
@@ -95,13 +96,13 @@ static void send_type(
 	uint8_t tmp_priv[sizeof(struct send_priv)] __attribute__((aligned(8))) = {};
 	struct send_priv *priv = tmp_priv;
 #endif
-
+pr_debug("send type2");
 	priv->buffer = buffer;
 	priv->packet_type = packet_type;
 	priv->peer = peer;
 	memcpy(&priv->fd, &sock->fd, sizeof(priv->fd));
 	priv->stat_size = stat_size;
-
+pr_debug("send type3");
 	/* TODO: find out if using remote_addr is save */
 
 	switch (remote_addr->sa.sa_family) {
@@ -152,6 +153,7 @@ static void send_type(
 void fastd_send_callback_second(ssize_t ret, void *p);
 
 void fastd_send_callback_first(ssize_t ret, void *p) {
+pr_debug("send type callback first");
 	struct send_priv *priv = p;
 #endif
 	if (ret < 0 && priv->msg.msg_controllen) {
@@ -173,7 +175,7 @@ void fastd_send_callback_first(ssize_t ret, void *p) {
 #endif
 		}
 	}
-
+	
 #ifdef HAVE_LIBURING
 }
 
