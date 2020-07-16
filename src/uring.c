@@ -47,7 +47,7 @@ static inline int task_timeout(void) {
 }
 
 /** Allocate and initialize a uring_priv */
-static inline struct fastd_uring_priv *uring_priv_new(fastd_poll_fd_t *fd, 
+static inline struct fastd_uring_priv *uring_priv_new(fastd_poll_fd_t *fd,
 		    fastd_uring_action_t action, void *data, void (*cb)(ssize_t, void *)) {
 	struct fastd_uring_priv *priv = fastd_new0(struct fastd_uring_priv);
 
@@ -109,7 +109,7 @@ static inline void uring_iface_register(fastd_poll_fd_t *fd) {
 '''
 
 NOTE: 	Needs to set io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-	
+
 Example code:
 	int ret;
 
@@ -309,17 +309,17 @@ static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 
 	pr_debug("priv %p\n", priv);
 	pr_debug("fd type %i\n", priv->fd->type);
-	
+
 	if (priv->action == URING_OUTPUT)
 		pr_debug("output\n");
-		
+
 	priv->caller_func(cqe->res, priv->caller_priv);
-	
+
 	if (cqe->res < 0) {
 		pr_debug("CQE failed %s\n", strerror(-cqe->res));
 		goto input;
 	}
-	
+
 	pr_debug("called\n");
 
 	/* FIXME: we should not reset the connection more than once, but we need
@@ -372,7 +372,7 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 			/* fill the submission queue with many read submissions */
 			/* FIXME
 			for(int i = 0; i < 1; i++)
-				
+
 			*/
 			uring_sqe_input(fd);
 			break;
@@ -393,7 +393,7 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 
 bool fastd_uring_fd_close(fastd_poll_fd_t *fd) {
 	/* TODO: Is this right? */
-	
+
 	return (close(fd->fd) == 0);
 }
 
@@ -428,14 +428,14 @@ void fastd_uring_handle(void) {
 			io_uring_cqe_seen(&ctx.uring, cqe);
 		}
 		cqe_count--;
-		
+
 		fastd_update_time();
 
 		timeout = task_timeout();
 		ts.tv_sec = timeout / 1000;
 		ts.tv_nsec = (timeout % 1000) * 1000;
 	}
-	
+
 	fastd_uring_eventfd_read();
 /*	ret = io_uring_submit(&ctx.uring);
 	for (i = 0; i < cqe_count; ++i) {
@@ -445,8 +445,8 @@ void fastd_uring_handle(void) {
 		pr_debug("seen2\n");
 	}
 */
-	
-	
+
+
 	/*ret = io_uring_submit(&ctx.uring);
 	if (ret <= 0) {
 		pr_debug("sqe submit failed: %d\n", ret);
@@ -464,6 +464,7 @@ void fastd_uring_init(void) {
 		ctx.func_fd_close = fastd_poll_fd_close;
 		ctx.func_io_handle = fastd_poll_handle;
 		ctx.func_io_free = fastd_poll_free;
+		ctx.func_accept = fastd_uring_accept_unsupported;
 		fastd_poll_init();
 
 		return;
@@ -481,6 +482,7 @@ void fastd_uring_init(void) {
 	ctx.func_fd_close = fastd_poll_fd_close;
 	ctx.func_io_handle = fastd_poll_handle;
 	ctx.func_io_free = fastd_poll_free;
+	ctx.func_accept = fastd_uring_accept;
 
 	memset(&ctx.uring_params, 0, sizeof(ctx.uring_params));
 	/* TODO: Try SQPOLL mode - needs privileges
@@ -498,10 +500,9 @@ void fastd_uring_init(void) {
 	/* TODO: Find more about FAST_POLL and try to fix it */
 	if (!(ctx.uring_params.features & IORING_FEAT_FAST_POLL))
 		pr_debug("uring fast poll not supported by the kernel.");
-		
+
 
 	fastd_uring_eventfd();
 	fastd_poll_fd_register(&ctx.uring_fd);
 	io_uring_register_eventfd(&ctx.uring, ctx.uring_fd.fd);
 }
-

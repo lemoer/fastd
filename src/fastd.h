@@ -310,7 +310,7 @@ struct fastd_context {
 	struct io_uring uring;
 	bool uring_initialized;
 	int uring_fixed_file_fps[1];	/* only contains the TUN/TAP iface fp */
-	void (*func_accept)(fastd_poll_fd_t *, struct sockaddr *, socklen_t *, void *, void (*)(int, void *));
+	void (*func_accept)(fastd_poll_fd_t *, struct sockaddr *, socklen_t *, void *, void (*)(ssize_t, void *));
 	void (*func_recvmsg)(fastd_poll_fd_t *, struct msghdr *, int, void *, void (*)(ssize_t, void *));
 	void (*func_sendmsg)(fastd_poll_fd_t *, const struct msghdr *, int, void *, void (*)(ssize_t, void *));
 	void (*func_read)(fastd_poll_fd_t *, void *, size_t, void *, void (*)(ssize_t, void *));
