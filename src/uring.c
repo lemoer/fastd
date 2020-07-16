@@ -68,16 +68,25 @@ static inline void uring_submit_priv(struct io_uring_sqe *sqe, struct fastd_urin
 	io_uring_sqe_set_data(sqe, priv);
 	pr_debug("setting data pointer %p\n", priv);
 
-	if(ctx.uring_params.features & IORING_FEAT_FAST_POLL) {
-		/* In fast poll mode we don't need to submit often
-		 * if ever and if then it is being done by fastd_uring_handle().
-		 * TODO: Check if this handling is correct */
-		/*io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
-		sqe->flags |= IOSQE_IO_LINK;*/
-		return;
-	}
+	pr_debug("uring_submit_priv() called");
 
-	io_uring_submit(&ctx.uring);
+	// if(ctx.uring_params.features & IORING_FEAT_FAST_POLL) {
+	// 	/* In fast poll mode we don't need to submit often
+	// 	 * if ever and if then it is being done by fastd_uring_handle().
+	// 	 * TODO: Check if this handling is correct */
+	// 	/*io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
+	// 	sqe->flags |= IOSQE_IO_LINK;*/
+	// 	return;
+	// }
+
+	int ret = io_uring_submit(&ctx.uring);
+
+	if (ret < 0) {
+		pr_debug("uring_submit_priv() failed");
+		fprintf(stderr, "failed to submit write: %s\n", strerror(-ret));
+	} else {
+		pr_debug("uring_submit_priv() successful");
+	}
 }
 
 static inline struct io_uring_sqe *uring_get_sqe() {
@@ -410,6 +419,10 @@ void fastd_uring_eventfd_read() {
 }
 
 void fastd_uring_handle(void) {
+	pr_debug("fastd_uring_handle() called");
+
+	fastd_uring_eventfd_read();
+
 	struct io_uring_cqe *cqe;
 	struct io_uring_cqe *cqes[MAX_URING_BACKLOG_SIZE];
 	int timeout = task_timeout(); //task_timeout();
@@ -417,16 +430,20 @@ void fastd_uring_handle(void) {
 	struct __kernel_timespec ts = { .tv_sec = timeout / 1000, .tv_nsec = (timeout % 1000) * 1000 };
 
 	cqe_count = io_uring_cq_ready(&ctx.uring);
+
 	while(timeout > 1000 && cqe_count) {
-		ret = io_uring_wait_cqe_timeout(&ctx.uring, &cqe, &ts);
-		if (ret < 0) {
-			pr_debug("uring wait without results %s %i", strerror(-ret), ret);
-			pr_debug("uring wait without results %i", ret);
-			break;
-		} else {
+		// ret = io_uring_wait_cqe_timeout(&ctx.uring, &cqe, &ts);
+		// if (ret < 0) {
+		// 	pr_debug("uring wait without results %s %i", strerror(-ret), ret);
+		// 	pr_debug("uring wait without results %i", ret);
+		// 	break;
+		// } else {
+			if (io_uring_peek_cqe(&ctx.uring,&cqe) < 0) {
+				exit_bug("io_uring_peek_cqe() failed");
+			}
 			uring_cqe_handle(cqe);
 			io_uring_cqe_seen(&ctx.uring, cqe);
-		}
+		// }
 		cqe_count--;
 
 		fastd_update_time();
@@ -436,7 +453,6 @@ void fastd_uring_handle(void) {
 		ts.tv_nsec = (timeout % 1000) * 1000;
 	}
 
-	fastd_uring_eventfd_read();
 /*	ret = io_uring_submit(&ctx.uring);
 	for (i = 0; i < cqe_count; ++i) {
 		uring_cqe_handle(cqes[i]);
