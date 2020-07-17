@@ -47,7 +47,7 @@ static inline int task_timeout(void) {
 }
 
 /** Allocate and initialize a uring_priv */
-static inline struct fastd_uring_priv *uring_priv_new(fastd_poll_fd_t *fd, 
+static inline struct fastd_uring_priv *uring_priv_new(fastd_poll_fd_t *fd,
 		    fastd_uring_action_t action, void *data, void (*cb)(ssize_t, void *)) {
 	struct fastd_uring_priv *priv = fastd_new0(struct fastd_uring_priv);
 
@@ -68,16 +68,25 @@ static inline void uring_submit_priv(struct io_uring_sqe *sqe, struct fastd_urin
 	io_uring_sqe_set_data(sqe, priv);
 	pr_debug("setting data pointer %p\n", priv);
 
-	if(ctx.uring_params.features & IORING_FEAT_FAST_POLL) {
-		/* In fast poll mode we don't need to submit often
-		 * if ever and if then it is being done by fastd_uring_handle().
-		 * TODO: Check if this handling is correct */
-		/*io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
-		sqe->flags |= IOSQE_IO_LINK;*/
-		return;
-	}
+	pr_debug("uring_submit_priv() called");
 
-	io_uring_submit(&ctx.uring);
+	// if(ctx.uring_params.features & IORING_FEAT_FAST_POLL) {
+	// 	/* In fast poll mode we don't need to submit often
+	// 	 * if ever and if then it is being done by fastd_uring_handle().
+	// 	 * TODO: Check if this handling is correct */
+	// 	/*io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
+	// 	sqe->flags |= IOSQE_IO_LINK;*/
+	// 	return;
+	// }
+
+	int ret = io_uring_submit(&ctx.uring);
+
+	if (ret < 0) {
+		pr_debug("uring_submit_priv() failed");
+		fprintf(stderr, "failed to submit write: %s\n", strerror(-ret));
+	} else {
+		pr_debug("uring_submit_priv() successful");
+	}
 }
 
 static inline struct io_uring_sqe *uring_get_sqe() {
@@ -100,7 +109,7 @@ void fastd_uring_fixed_buffer_alloc() {
  */
 
 /* registers the TUN/TAP file descriptor for IOSQE_FIXED_FILE */
-static inline void uring_iface_register(fastd_poll_fd_t *fd) {
+static void uring_iface_register(fastd_poll_fd_t *fd) {
 /* TODO: Currently unsupported - Try to fix it
 '''
   To  successfully  use  this feature, the application must register a set of files to be
@@ -109,17 +118,21 @@ static inline void uring_iface_register(fastd_poll_fd_t *fd) {
 '''
 
 NOTE: 	Needs to set io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-	
+
 Example code:
+*/
+
 	int ret;
 
 	ctx.uring_fixed_file_fps[0] = fd->fd;
 
-	ret = io_uring_register_files(&ctx.ring, ctx.uring_fixed_file_fps, 1);
+	ret = io_uring_register_files(&ctx.uring, ctx.uring_fixed_file_fps, 1);
+
+	pr_debug("uring_iface_register() called");
 
 	if(ret)
-		error_bug("err_uring_fixed_file_register: %s", strerror(-ret));
-*/
+		exit_bug("err_uring_fixed_file_register: BUG");
+
 }
 
 /*
@@ -155,6 +168,7 @@ void fastd_uring_recvmsg(fastd_poll_fd_t *fd, struct msghdr *msg, int flags, voi
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_INPUT, data, cb);
 
 	io_uring_prep_recvmsg(sqe, fd->fd, msg, flags);
+	io_uring_sqe_set_flags(sqe, IOSQE_ASYNC);
 	uring_submit_priv(sqe, priv);
 }
 
@@ -168,6 +182,7 @@ void fastd_uring_sendmsg(fastd_poll_fd_t *fd, const struct msghdr *msg, int flag
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_OUTPUT, data, cb);
 
 	io_uring_prep_sendmsg(sqe, fd->fd, msg, flags);
+	io_uring_sqe_set_flags(sqe, IOSQE_ASYNC);
 	uring_submit_priv(sqe, priv);
 }
 
@@ -185,7 +200,8 @@ void fastd_uring_read(fastd_poll_fd_t *fd, void *buf, size_t count, void *data, 
 	struct io_uring_sqe *sqe = uring_get_sqe();
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_INPUT, data, cb);
 
-	io_uring_prep_read(sqe, fd->fd, buf, count, 0);
+	io_uring_prep_read(sqe, 0, buf, count, 0);
+	io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE | IOSQE_ASYNC);
 	uring_submit_priv(sqe, priv);
 }
 
@@ -198,7 +214,8 @@ void fastd_uring_write(fastd_poll_fd_t *fd, const void *buf, size_t count, void 
 	struct io_uring_sqe *sqe = uring_get_sqe();
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_OUTPUT, data, cb);
 
-	io_uring_prep_write(sqe, fd->fd, buf, count, 0);
+	io_uring_prep_write(sqe, 0, buf, count, 0);
+	io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE | IOSQE_ASYNC);
 	uring_submit_priv(sqe, priv);
 }
 
@@ -309,17 +326,17 @@ static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 
 	pr_debug("priv %p\n", priv);
 	pr_debug("fd type %i\n", priv->fd->type);
-	
+
 	if (priv->action == URING_OUTPUT)
 		pr_debug("output\n");
-		
+
 	priv->caller_func(cqe->res, priv->caller_priv);
-	
+
 	if (cqe->res < 0) {
 		pr_debug("CQE failed %s\n", strerror(-cqe->res));
 		goto input;
 	}
-	
+
 	pr_debug("called\n");
 
 	/* FIXME: we should not reset the connection more than once, but we need
@@ -372,7 +389,7 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 			/* fill the submission queue with many read submissions */
 			/* FIXME
 			for(int i = 0; i < 1; i++)
-				
+
 			*/
 			uring_sqe_input(fd);
 			break;
@@ -388,12 +405,12 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 		pr_debug("uring wrong fd type received %i", fd->type);
 		break;
 	}
-	 io_uring_submit(&ctx.uring);
+	//io_uring_submit(&ctx.uring);
 }
 
 bool fastd_uring_fd_close(fastd_poll_fd_t *fd) {
 	/* TODO: Is this right? */
-	
+
 	return (close(fd->fd) == 0);
 }
 
@@ -410,33 +427,50 @@ void fastd_uring_eventfd_read() {
 }
 
 void fastd_uring_handle(void) {
+	pr_debug("fastd_uring_handle() called");
+
+	fastd_uring_eventfd_read();
+
 	struct io_uring_cqe *cqe;
 	struct io_uring_cqe *cqes[MAX_URING_BACKLOG_SIZE];
 	int timeout = task_timeout(); //task_timeout();
 	int cqe_count, ret, i;
 	struct __kernel_timespec ts = { .tv_sec = timeout / 1000, .tv_nsec = (timeout % 1000) * 1000 };
 
+	cqe_count = io_uring_peek_batch_cqe(&ctx.uring, &cqes, MAX_URING_BACKLOG_SIZE);
+	pr_debug("handling %i CQEs", cqe_count);
+	for (i = 0; i < cqe_count; i++) {
+		uring_cqe_handle(cqes[i]);
+		io_uring_cqe_seen(&ctx.uring, cqes[i]);
+	}
+/*
 	cqe_count = io_uring_cq_ready(&ctx.uring);
-	while(timeout > 1000 && cqe_count) {
+
+	while(cqe_count) {
+		pr_debug("io_uring_wait_cqe_timeout() will be called now");
 		ret = io_uring_wait_cqe_timeout(&ctx.uring, &cqe, &ts);
 		if (ret < 0) {
 			pr_debug("uring wait without results %s %i", strerror(-ret), ret);
 			pr_debug("uring wait without results %i", ret);
 			break;
-		} else {
-			uring_cqe_handle(cqe);
-			io_uring_cqe_seen(&ctx.uring, cqe);
 		}
+			// if (io_uring_peek_cqe(&ctx.uring,&cqe) < 0) {
+			// 	exit_bug("io_uring_peek_cqe() failed");
+			// }
+		uring_cqe_handle(cqe);
+		io_uring_cqe_seen(&ctx.uring, cqe);
 		cqe_count--;
+
 		
+
 		fastd_update_time();
 
 		timeout = task_timeout();
 		ts.tv_sec = timeout / 1000;
 		ts.tv_nsec = (timeout % 1000) * 1000;
 	}
-	
-	fastd_uring_eventfd_read();
+*/
+
 /*	ret = io_uring_submit(&ctx.uring);
 	for (i = 0; i < cqe_count; ++i) {
 		uring_cqe_handle(cqes[i]);
@@ -445,8 +479,8 @@ void fastd_uring_handle(void) {
 		pr_debug("seen2\n");
 	}
 */
-	
-	
+
+
 	/*ret = io_uring_submit(&ctx.uring);
 	if (ret <= 0) {
 		pr_debug("sqe submit failed: %d\n", ret);
@@ -464,6 +498,7 @@ void fastd_uring_init(void) {
 		ctx.func_fd_close = fastd_poll_fd_close;
 		ctx.func_io_handle = fastd_poll_handle;
 		ctx.func_io_free = fastd_poll_free;
+		ctx.func_accept = fastd_uring_accept_unsupported;
 		fastd_poll_init();
 
 		return;
@@ -473,35 +508,44 @@ void fastd_uring_init(void) {
 
 	pr_debug("Setting function pointers\n");
 
-	ctx.func_recvmsg = fastd_uring_recvmsg_unsupported;
-	ctx.func_sendmsg = fastd_uring_sendmsg_unsupported;
+	ctx.func_recvmsg = fastd_uring_recvmsg;
+	ctx.func_sendmsg = fastd_uring_sendmsg;
 	ctx.func_read = fastd_uring_read;
 	ctx.func_write = fastd_uring_write;
 	ctx.func_fd_register = fastd_poll_fd_register;
 	ctx.func_fd_close = fastd_poll_fd_close;
 	ctx.func_io_handle = fastd_poll_handle;
 	ctx.func_io_free = fastd_poll_free;
+	ctx.func_accept = fastd_uring_accept;
 
 	memset(&ctx.uring_params, 0, sizeof(ctx.uring_params));
-	/* TODO: Try SQPOLL mode - needs privileges
+	ctx.uring_params.flags |= IORING_SETUP_SQPOLL;
+	/* TODO: Try SQPOLL mode - needs privileges */
 	if (!geteuid()) {
-		fprint("uring: Activating SQPOLL mode - Experimental! \n");
+		pr_debug("uring: Activating SQPOLL mode - Experimental! \n");
 		ctx.uring_params.flags |= IORING_SETUP_SQPOLL;
+		
 		ctx.uring_params.sq_thread_idle = 8000;
-	}*/
+	}
+
 
 	pr_debug("Initializing uring queue\n");
 
 	if (io_uring_queue_init_params(MAX_URING_SIZE, &ctx.uring, &ctx.uring_params) < 0)
         	exit_bug("uring init failed");
 
+	pr_debug("init uring done!!!!");
+
 	/* TODO: Find more about FAST_POLL and try to fix it */
 	if (!(ctx.uring_params.features & IORING_FEAT_FAST_POLL))
 		pr_debug("uring fast poll not supported by the kernel.");
-		
+	
+	if (!(ctx.uring_params.features & IORING_FEAT_NODROP)) {
+		pr_debug("uring nodrop not supported by the kernel.");
+		/*ctx.uring_params.flags |= IORING_SETUP_CQ_NODROP;*/
+	}
 
 	fastd_uring_eventfd();
 	fastd_poll_fd_register(&ctx.uring_fd);
 	io_uring_register_eventfd(&ctx.uring, ctx.uring_fd.fd);
 }
-

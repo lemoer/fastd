@@ -25,6 +25,8 @@ static int bind_socket(const fastd_bind_address_t *addr) {
 	int fd = -1;
 	int af = AF_UNSPEC;
 
+pr_debug("bind socket");
+
 	if (addr->addr.sa.sa_family != AF_INET) {
 #ifdef HAVE_LIBURING
 		fd = socket(PF_INET6, SOCK_DGRAM, IPPROTO_UDP);
@@ -56,8 +58,10 @@ static int bind_socket(const fastd_bind_address_t *addr) {
 	if (fd < 0)
 		goto error;
 
+#ifndef HAVE_LIBURING
 #ifdef NO_HAVE_SOCK_NONBLOCK
 	fastd_setnonblock(fd);
+#endif
 #endif
 
 	int one = 1;
@@ -201,7 +205,8 @@ void fastd_socket_bind_all(void) {
 		else
 			pr_info("bound to %B", &bound_addr);
 #ifdef HAVE_LIBURING
-		ctx.func_fd_register(&sock->fd);
+		fastd_uring_fd_register(&sock->fd);
+		//ctx.func_fd_register(&sock->fd);
 #else
 		fastd_poll_fd_register(&sock->fd);
 #endif
@@ -240,7 +245,8 @@ fastd_socket_t *fastd_socket_open(fastd_peer_t *peer, int af) {
 	set_bound_address(sock);
 
 #ifdef HAVE_LIBURING
-	ctx.func_fd_register(&sock->fd);
+	fastd_uring_fd_register(&sock->fd);
+	//ctx.func_fd_register(&sock->fd);
 #else
 	fastd_poll_fd_register(&sock->fd);
 #endif
