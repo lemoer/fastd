@@ -48,6 +48,7 @@ static inline int task_timeout(void) {
 
 /** Handles a file descriptor that was selected on */
 static inline void handle_fd(fastd_poll_fd_t *fd, bool input, bool error) {
+	pr_debug("handle_fd() called %i vs %i", POLL_TYPE_URING, fd->type);
 	switch (fd->type) {
 	case POLL_TYPE_ASYNC:
 		if (input)
@@ -85,7 +86,7 @@ static inline void handle_fd(fastd_poll_fd_t *fd, bool input, bool error) {
 
 		break;
 	}
-	
+
 	case POLL_TYPE_URING: {
 		fastd_uring_handle();
 		break;
