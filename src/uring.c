@@ -215,6 +215,7 @@ void fastd_uring_write(fastd_poll_fd_t *fd, const void *buf, size_t count, void 
 
 	io_uring_prep_write(sqe, 0, buf, count, 0);
 	io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
+	io_uring_sqe_set_flags(sqe, IOSQE_ASYNC);
 	uring_submit_priv(sqe, priv);
 }
 
