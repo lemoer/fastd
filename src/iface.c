@@ -80,7 +80,7 @@ static bool open_iface_linux(fastd_iface_t *iface, const char *ifname, uint16_t 
 	struct ifreq ifr = {};
 
 #ifdef HAVE_LIBURING
-	iface->fd = FASTD_POLL_FD(POLL_TYPE_IFACE, open(dev_name, O_RDWR | O_NONBLOCK));
+	iface->fd = FASTD_POLL_FD(POLL_TYPE_IFACE, open(dev_name, O_RDWR));
 #else
 	iface->fd = FASTD_POLL_FD(POLL_TYPE_IFACE, open(dev_name, O_RDWR | O_NONBLOCK));
 #endif
