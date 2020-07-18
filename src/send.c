@@ -92,6 +92,8 @@ pr_debug("send type");
 
 #ifdef HAVE_LIBURING
 	struct send_priv *priv = fastd_new_aligned(struct send_priv, 16);
+	
+	memset(priv, 0, sizeof(struct send_priv));
 #else
 	uint8_t tmp_priv[sizeof(struct send_priv)] __attribute__((aligned(8))) = {};
 	struct send_priv *priv = tmp_priv;
@@ -135,8 +137,9 @@ pr_debug("send type3");
 
 	priv->msg.msg_iov = priv->iov;
 	priv->msg.msg_iovlen = buffer.len ? 2 : 1;
+	/*
 	priv->msg.msg_control = priv->cbuf;
-	priv->msg.msg_controllen = 0;
+	priv->msg.msg_controllen = 0;*/
 
 	add_pktinfo(&priv->msg, local_addr);
 
