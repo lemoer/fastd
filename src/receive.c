@@ -247,6 +247,8 @@ void fastd_receive_callback(ssize_t len, void *p);
 void fastd_receive(fastd_socket_t *sock) {
 #ifdef HAVE_LIBURING
 	struct receive_priv *priv = fastd_new_aligned(struct receive_priv, 16);
+	
+	memset(priv, 0, sizeof(struct receive_priv));
 #else
 	uint8_t tmp_priv[sizeof(struct receive_priv)] __attribute__((aligned(8)));
 	struct receive_priv *priv = &tmp_priv;
@@ -262,14 +264,15 @@ void fastd_receive(fastd_socket_t *sock) {
 	priv->message.msg_namelen = sizeof(priv->recvaddr);
 	priv->message.msg_iov = &priv->buffer_vec;
 	priv->message.msg_iovlen = 1;
+	/*
 	priv->message.msg_control = priv->cbuf;
-	priv->message.msg_controllen = sizeof(priv->cbuf);
+	priv->message.msg_controllen = sizeof(priv->cbuf);*/
 
 
 #ifndef HAVE_LIBURING
 	ssize_t len = recvmsg(sock->fd.fd, &message, 0);
 #else
-	ctx.func_recvmsg(&sock->fd, &priv->message, 0, priv, fastd_receive_callback);
+	ctx.func_recvmsg(&sock->fd, &priv->message, MSG_WAITALL, priv, fastd_receive_callback);
 }
 
 void fastd_receive_callback(ssize_t len, void *p) {
