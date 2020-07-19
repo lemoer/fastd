@@ -429,7 +429,7 @@ static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 
 	pr_debug("handle cqe %i\n", cqe->res);
 
-	if(priv == ~0) {
+	if (!priv) {
 		pr_debug("err no priv\n");
 		return;
 	}
@@ -556,13 +556,23 @@ void fastd_uring_handle(void) {
 	pr_debug("fastd_uring_handle() called");
 	//
 
+	fastd_uring_eventfd_read();
+
 	io_uring_for_each_cqe(&ctx.uring, head, cqe) {
 		uring_cqe_handle(cqe);
 		count++;
+
+		// In general, we do not want to advance the "seen" counter after every
+		// cqe because it is somewhat expensive. However, it seems like if the
+		// whole cqe is full, completion events seem to be dropped. By
+		// advancing after at maximum MAX_URING_SIZE / 2 cqes, we make sure,
+		// nothing is dropped.
+		if (count > MAX_URING_SIZE / 2) {
+			io_uring_cq_advance(&ctx.uring, count);
+			count = 0;
+		}
 	}
 
-
-	fastd_uring_eventfd_read();
 	io_uring_cq_advance(&ctx.uring, count);
 
 	pr_debug("handled %i CQEs", count);
@@ -650,7 +660,7 @@ void fastd_uring_init(void) {
 		ctx.uring_params.sq_thread_idle = 8000;
 	}
 
-	if (io_uring_queue_init_params(MAX_URING_SIZE/2, &ctx.uring, &ctx.uring_params) < 0)
+	if (io_uring_queue_init_params(MAX_URING_SIZE, &ctx.uring, &ctx.uring_params) < 0)
         	exit_bug("uring init failed");
 
 	/* TODO: Find more about FAST_POLL and try to fix it */
