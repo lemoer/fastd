@@ -66,7 +66,13 @@ static inline void uring_submit_priv(struct io_uring_sqe *sqe, struct fastd_urin
 	io_uring_sqe_set_data(sqe, priv);
 	pr_debug("setting data pointer %p\n", priv);
 
-	pr_debug("uring_submit_priv() called");
+	const char *inout;
+	if (priv->action == URING_INPUT)
+		inout = "URING_INPUT";
+	else
+		inout = "URING_OUTPUT";
+
+	pr_debug("uring_submit_priv() called, fd=%i, action=%s", priv->fd->fd, inout);
 
 	// if(ctx.uring_params.features & IORING_FEAT_FAST_POLL) {
 	// 	/* In fast poll mode we don't need to submit often
@@ -438,7 +444,7 @@ static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 
 	if (cqe->res < 0) {
 		pr_debug("CQE failed %s\n", strerror(-cqe->res));
-		exit_bug("looo");
+		//exit_bug("looo");
 		goto input;
 	}
 
@@ -500,8 +506,9 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 			*/
 			// Do a test for now
 			//fastd_uring_sock_init_test(fd);
-			//for(int i = 0; i < 64; i++)
+			//
 			uring_iface_register(fd);
+			//for(int i = 0; i < 64; i++)
 			uring_sqe_input(fd);
 			break;
 		}
@@ -534,25 +541,28 @@ void fastd_uring_eventfd() {
 void fastd_uring_eventfd_read() {
 	eventfd_t v;
 	int ret = eventfd_read(ctx.uring_fd.fd, &v);
+	pr_debug("eventfd_read result=%i", ret);
 	if (ret < 0) exit_bug("eventfd_read");
 }
 
 
 void fastd_uring_handle(void) {
 	struct io_uring_cqe *cqe;
-	struct io_uring_cqe *cqes[MAX_URING_BACKLOG_SIZE];
+	//struct io_uring_cqe *cqes[MAX_URING_BACKLOG_SIZE];
 	int timeout = task_timeout(); //task_timeout();
-	struct __kernel_timespec ts = { .tv_sec = timeout / 1000, .tv_nsec = (timeout % 1000) * 1000 };
+	struct __kernel_timespec ts = { .tv_sec = timeout / 1000, .tv_nsec = (timeout % 1000) * 10000000 };
 	unsigned head, count = 0;
 
 	pr_debug("fastd_uring_handle() called");
-	fastd_uring_eventfd_read();
+	//
 
 	io_uring_for_each_cqe(&ctx.uring, head, cqe) {
 		uring_cqe_handle(cqe);
 		count++;
 	}
 
+
+	fastd_uring_eventfd_read();
 	io_uring_cq_advance(&ctx.uring, count);
 
 	pr_debug("handled %i CQEs", count);
@@ -640,12 +650,12 @@ void fastd_uring_init(void) {
 		ctx.uring_params.sq_thread_idle = 8000;
 	}
 
-	if (io_uring_queue_init_params(MAX_URING_SIZE, &ctx.uring, &ctx.uring_params) < 0)
+	if (io_uring_queue_init_params(MAX_URING_SIZE/2, &ctx.uring, &ctx.uring_params) < 0)
         	exit_bug("uring init failed");
 
 	/* TODO: Find more about FAST_POLL and try to fix it */
-	if (!(ctx.uring_params.features & IORING_FEAT_FAST_POLL))
-		pr_debug("uring fast poll not supported by the kernel.");
+	//if (!(ctx.uring_params.features & IORING_FEAT_FAST_POLL))
+	//	pr_debug("uring fast poll not supported by the kernel.");
 
 	if (!(ctx.uring_params.features & IORING_FEAT_NODROP)) {
 		pr_debug("uring nodrop not supported by the kernel.");
