@@ -178,8 +178,9 @@ pr_debug("send type callback first");
 #endif
 		}
 	}
-	
 #ifdef HAVE_LIBURING
+
+	fastd_send_callback_second(ret, priv);
 }
 
 void fastd_send_callback_second(ssize_t ret, void *p) {
