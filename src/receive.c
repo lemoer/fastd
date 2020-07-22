@@ -310,11 +310,12 @@ void fastd_receive_callback(ssize_t len, void *p) {
 	fastd_peer_address_simplify(&priv->recvaddr);
 
 	pr_debug("fastd_receive_callback received %i bytes", priv->buffer.len);
-	char test_str[10];
+/*	char test_str[10];
 	memcpy(test_str, priv->buffer.data, 10);
 	test_str[0] = 'h';
 	test_str[10] = '\0';
 	pr_debug("fastd first bytes %s", test_str);
+*/
 
 	handle_socket_receive(priv->sock, &priv->local_addr, &priv->recvaddr, priv->buffer);
 

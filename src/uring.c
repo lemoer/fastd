@@ -651,7 +651,8 @@ void fastd_uring_init(void) {
 	ctx.func_accept = fastd_uring_accept;
 
 	memset(&ctx.uring_params, 0, sizeof(ctx.uring_params));
-	/* TODO: Try SQPOLL mode - needs privileges */
+	
+	/* TODO: Try SQPOLL mode - needs privileges 
 	if (!geteuid()) {
 
 		pr_debug("uring: Activating SQPOLL mode - Experimental! \n");
@@ -659,6 +660,7 @@ void fastd_uring_init(void) {
 
 		ctx.uring_params.sq_thread_idle = 8000;
 	}
+	*/
 
 	if (io_uring_queue_init_params(MAX_URING_SIZE, &ctx.uring, &ctx.uring_params) < 0)
         	exit_bug("uring init failed");
