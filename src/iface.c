@@ -79,11 +79,8 @@ static void cleanup_iface(fastd_iface_t *iface);
 static bool open_iface_linux(fastd_iface_t *iface, const char *ifname, uint16_t mtu, const char *dev_name) {
 	struct ifreq ifr = {};
 
-#ifdef HAVE_LIBURING
-	iface->fd = FASTD_POLL_FD(POLL_TYPE_IFACE, open(dev_name, O_RDWR));
-#else
 	iface->fd = FASTD_POLL_FD(POLL_TYPE_IFACE, open(dev_name, O_RDWR | O_NONBLOCK));
-#endif
+
 	if (iface->fd.fd < 0)
 		exit_errno("could not open TUN/TAP device file");
 

@@ -308,7 +308,7 @@ void fastd_uring_read(fastd_poll_fd_t *fd, void *buf, size_t count, void *data, 
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_INPUT, data, cb);
 
 	io_uring_prep_read(sqe, fd->uring_idx, buf, count, 0);
-	io_uring_sqe_set_flags(sqe, IOSQE_ASYNC | IOSQE_FIXED_FILE); /* IOSQE_FIXED_FILE |*/
+	io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE); /* IOSQE_FIXED_FILE |*/
 	uring_submit_priv(sqe, priv);
 }
 
@@ -322,7 +322,7 @@ void fastd_uring_write(fastd_poll_fd_t *fd, const void *buf, size_t count, void 
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_OUTPUT, data, cb);
 
 	io_uring_prep_write(sqe, fd->uring_idx, buf, count, 0);
-	io_uring_sqe_set_flags(sqe, IOSQE_ASYNC | IOSQE_FIXED_FILE);
+	io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 	uring_submit_priv(sqe, priv);
 }
 
