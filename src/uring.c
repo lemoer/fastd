@@ -550,7 +550,7 @@ void fastd_uring_handle(void) {
 	struct io_uring_cqe *cqe;
 	//struct io_uring_cqe *cqes[MAX_URING_BACKLOG_SIZE];
 	int timeout = task_timeout(); //task_timeout();
-	struct __kernel_timespec ts = { .tv_sec = timeout / 1000, .tv_nsec = (timeout % 1000) * 10000000 };
+	struct __kernel_timespec ts = { .tv_sec = timeout / 1000, .tv_nsec = (timeout % 1000) * 1000000 };
 	unsigned head, count = 0;
 
 	pr_debug("fastd_uring_handle() called");
