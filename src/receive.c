@@ -272,7 +272,7 @@ void fastd_receive(fastd_socket_t *sock) {
 #ifndef HAVE_LIBURING
 	ssize_t len = recvmsg(sock->fd.fd, &message, 0);
 #else
-	ctx.func_recvmsg(&sock->fd, &priv->message, MSG_WAITALL, priv, fastd_receive_callback);
+	ctx.func_recvmsg(&sock->fd, &priv->message, 0, priv, fastd_receive_callback);
 }
 
 void fastd_receive_callback(ssize_t len, void *p) {
