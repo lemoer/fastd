@@ -86,7 +86,7 @@ void fastd_send_callback_first(ssize_t ret, void *p);
 static void send_type(
 	const fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr,
 	fastd_peer_t *peer, uint8_t packet_type, fastd_buffer_t buffer, size_t stat_size) {
-pr_debug("send type");
+
 	if (!sock)
 		exit_bug("send: sock == NULL");
 
@@ -98,14 +98,12 @@ pr_debug("send type");
 	uint8_t tmp_priv[sizeof(struct send_priv)] __attribute__((aligned(8))) = {};
 	struct send_priv *priv = tmp_priv;
 #endif
-pr_debug("send type2");
+
 	priv->buffer = buffer;
 	priv->packet_type = packet_type;
 	priv->peer = peer;
 	memcpy(&priv->fd, &sock->fd, sizeof(priv->fd));
 	priv->stat_size = stat_size;
-pr_debug("send type3");
-	/* TODO: find out if using remote_addr is save */
 
 	switch (remote_addr->sa.sa_family) {
 	case AF_INET:
@@ -137,18 +135,22 @@ pr_debug("send type3");
 
 	priv->msg.msg_iov = priv->iov;
 	priv->msg.msg_iovlen = buffer.len ? 2 : 1;
-	/*
+
+#ifndef HAVE_LIBURING
 	priv->msg.msg_control = priv->cbuf;
-	priv->msg.msg_controllen = 0;*/
+	priv->msg.msg_controllen = 0;
 
 	add_pktinfo(&priv->msg, local_addr);
-
+	
 	if (!priv->msg.msg_controllen)
 		priv->msg.msg_control = NULL;
 
-#ifndef HAVE_LIBURING
 	int ret = sendmsg(sock->fd.fd, &priv->msg, 0);
 #else
+	/* io_uring does not support msg_control */
+	priv->msg.msg_control = NULL;
+	priv->msg.msg_controllen = 0;
+
 	ctx.func_sendmsg(&priv->fd, &priv->msg, 0, priv, fastd_send_callback_first);
 }
 
