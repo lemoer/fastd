@@ -595,6 +595,8 @@ static inline void run(void) {
 #ifdef HAVE_LIBURING
 	//FIXMEfastd_uring_handle();
 		fastd_poll_handle();
+		pr_debug("FASTD.C uring_handle");
+		//fastd_uring_handle();
 #else
 	fastd_poll_handle();
 #endif

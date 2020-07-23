@@ -311,6 +311,9 @@ struct fastd_context {
 	bool uring_initialized;
 	int uring_fixed_file_fps[2048];	/* only contains the TUN/TAP iface fp, sock fp */
 	int uring_fixed_file_fps_cnt;
+	unsigned uring_recvmsg_num;
+	unsigned uring_read_num;
+	bool uring_sqe_must_link;
 	void (*func_accept)(fastd_poll_fd_t *, struct sockaddr *, socklen_t *, void *, void (*)(ssize_t, void *));
 	void (*func_recvmsg)(fastd_poll_fd_t *, struct msghdr *, int, void *, void (*)(ssize_t, void *));
 	void (*func_sendmsg)(fastd_poll_fd_t *, const struct msghdr *, int, void *, void (*)(ssize_t, void *));

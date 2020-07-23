@@ -145,11 +145,12 @@ static bool backoff_unknown(const fastd_peer_address_t *addr) {
 static inline void handle_socket_receive_known(
 	fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr,
 	fastd_peer_t *peer, fastd_buffer_t buffer) {
+	pr_debug("handle_socket_receive_known");
 	if (!fastd_peer_may_connect(peer)) {
 		fastd_buffer_free(buffer);
 		return;
 	}
-
+	pr_debug("handle_socket_receive_known1");
 	const uint8_t *packet_type = buffer.data;
 	fastd_buffer_push_head(&buffer, 1);
 
@@ -164,11 +165,12 @@ static inline void handle_socket_receive_known(
 			}
 			return;
 		}
-
+		pr_debug("handle_socket_receive_known data");
 		conf.protocol->handle_recv(peer, buffer);
 		break;
 
 	case PACKET_HANDSHAKE:
+		pr_debug("handle_socket_receive_known handshakle");
 		fastd_handshake_handle(sock, local_addr, remote_addr, peer, buffer);
 	}
 }
@@ -196,6 +198,7 @@ static inline void handle_socket_receive_unknown(
 		break;
 
 	case PACKET_HANDSHAKE:
+		pr_debug("handle_socket_receive_unknown handshake");
 		fastd_handshake_handle(sock, local_addr, remote_addr, NULL, buffer);
 	}
 }
@@ -205,7 +208,7 @@ static inline void handle_socket_receive(
 	fastd_socket_t *sock, const fastd_peer_address_t *local_addr, const fastd_peer_address_t *remote_addr,
 	fastd_buffer_t buffer) {
 	fastd_peer_t *peer = NULL;
-
+pr_debug("handle_socket_receive 1");
 	if (sock->peer) {
 		if (!fastd_peer_address_equal(&sock->peer->address, remote_addr)) {
 			fastd_buffer_free(buffer);
@@ -216,11 +219,13 @@ static inline void handle_socket_receive(
 	} else {
 		peer = fastd_peer_hashtable_lookup(remote_addr);
 	}
-
+pr_debug("handle_socket_receive 2");
 	if (peer) {
 		handle_socket_receive_known(sock, local_addr, remote_addr, peer, buffer);
+		pr_debug("handle_socket_receive 3");
 	} else if (allow_unknown_peers()) {
 		handle_socket_receive_unknown(sock, local_addr, remote_addr, buffer);
+		pr_debug("handle_socket_receive 4");
 	} else {
 		pr_debug("received packet from unknown peer %I", remote_addr);
 		fastd_buffer_free(buffer);
@@ -295,7 +300,6 @@ void fastd_receive_callback(ssize_t len, void *p) {
 	}
 
 	priv->buffer.len = len;
-
 	handle_socket_control(&priv->message, priv->sock, &priv->local_addr);
 
 #ifdef USE_PKTINFO
@@ -310,20 +314,19 @@ void fastd_receive_callback(ssize_t len, void *p) {
 	fastd_peer_address_simplify(&priv->recvaddr);
 
 	pr_debug("fastd_receive_callback received %i bytes", priv->buffer.len);
-/*	char test_str[10];
+	/*
+	char test_str[10];
 	memcpy(test_str, priv->buffer.data, 10);
 	test_str[0] = 'h';
 	test_str[10] = '\0';
-	pr_debug("fastd first bytes %s", test_str);
-*/
+	pr_debug("fastd first bytes %s", test_str);*/
 
 	handle_socket_receive(priv->sock, &priv->local_addr, &priv->recvaddr, priv->buffer);
 
 out:
 #ifdef HAVE_LIBURING
-	pr_debug("fastd_receive_callback free1");
 	free(priv);
-	pr_debug("fastd_receive_callback free2");
+	pr_debug("fastd_receive_callback free");
 #endif
 }
 
