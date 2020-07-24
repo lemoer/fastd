@@ -567,10 +567,10 @@ void fastd_uring_handle(void) {
 		// whole cqe is full, completion events seem to be dropped. By
 		// advancing after at maximum MAX_URING_SIZE / 2 cqes, we make sure,
 		// nothing is dropped.
-		// if (count > MAX_URING_SIZE / 2) {
-		// 	io_uring_cq_advance(&ctx.uring, count);
-		// 	count = 0;
-		// }
+		if (count > MAX_URING_SIZE / 2) {
+			io_uring_cq_advance(&ctx.uring, count);
+			count = 0;
+		}
 	}
 
 	io_uring_cq_advance(&ctx.uring, count);
