@@ -493,7 +493,7 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 			/* FIXME register the file descriptor as a "fixed file" */
 			pr_debug("Setting iface input \n");
 			uring_iface_register(fd);
-			//for(int i = 0; i < 64; i++)
+			// for(int i = 0; i < 64; i++)
 			uring_sqe_input(fd);
 
 			break;
@@ -508,7 +508,7 @@ void fastd_uring_fd_register(fastd_poll_fd_t *fd) {
 			//fastd_uring_sock_init_test(fd);
 			//
 			uring_iface_register(fd);
-			//for(int i = 0; i < 64; i++)
+			// for(int i = 0; i < 64; i++)
 			uring_sqe_input(fd);
 			break;
 		}
@@ -567,10 +567,10 @@ void fastd_uring_handle(void) {
 		// whole cqe is full, completion events seem to be dropped. By
 		// advancing after at maximum MAX_URING_SIZE / 2 cqes, we make sure,
 		// nothing is dropped.
-		if (count > MAX_URING_SIZE / 2) {
-			io_uring_cq_advance(&ctx.uring, count);
-			count = 0;
-		}
+		// if (count > MAX_URING_SIZE / 2) {
+		// 	io_uring_cq_advance(&ctx.uring, count);
+		// 	count = 0;
+		// }
 	}
 
 	io_uring_cq_advance(&ctx.uring, count);
@@ -669,7 +669,8 @@ void fastd_uring_init(void) {
 
 	if (!(ctx.uring_params.features & IORING_FEAT_NODROP)) {
 		pr_debug("uring nodrop not supported by the kernel.");
-		/*ctx.uring_params.flags |= IORING_SETUP_CQ_NODROP;*/
+#define IORING_SETUP_CQ_NODROP	(1U << 4)	/* no CQ drops */
+		ctx.uring_params.flags |= IORING_SETUP_CQ_NODROP;
 	}
 
 	fastd_uring_eventfd();

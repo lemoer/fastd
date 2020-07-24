@@ -41,6 +41,8 @@ size_t fastd_snprint_peer_address(
 
 void fastd_logf(const fastd_loglevel_t level, const char *format, ...);
 
+void nothing();
+
 /** Logs a formatted fatal error message */
 #define pr_fatal(args...) fastd_logf(LL_FATAL, args)
 /** Logs a formatted error message */
@@ -52,7 +54,10 @@ void fastd_logf(const fastd_loglevel_t level, const char *format, ...);
 /** Logs a formatted verbose message */
 #define pr_verbose(args...) fastd_logf(LL_VERBOSE, args)
 /** Logs a formatted debug message */
+#if 0
 #define pr_debug(args...) fastd_logf(LL_DEBUG, args)
+#endif
+#define pr_debug(args...) nothing()
 /** Logs a formatted debug2 message */
 #define pr_debug2(args...) fastd_logf(LL_DEBUG2, args)
 

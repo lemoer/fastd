@@ -459,6 +459,10 @@ free:
 void fastd_iface_write_callback(ssize_t ret, void *p);
 #endif
 
+void nothing() {
+
+}
+
 /** Writes a packet to the TUN/TAP device */
 void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {
 	if (!buffer.len) {

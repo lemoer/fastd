@@ -29,7 +29,7 @@ pr_debug("bind socket");
 
 	if (addr->addr.sa.sa_family != AF_INET) {
 #ifdef HAVE_LIBURING
-		fd = socket(PF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+		fd = socket(PF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
 #else
 		fd = socket(PF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
 #endif

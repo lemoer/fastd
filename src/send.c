@@ -92,7 +92,7 @@ pr_debug("send type");
 
 #ifdef HAVE_LIBURING
 	struct send_priv *priv = fastd_new_aligned(struct send_priv, 16);
-	
+
 	memset(priv, 0, sizeof(struct send_priv));
 #else
 	uint8_t tmp_priv[sizeof(struct send_priv)] __attribute__((aligned(8))) = {};
@@ -173,12 +173,19 @@ pr_debug("send type callback first");
 
 #ifdef HAVE_LIBURING
 			ctx.func_sendmsg(&priv->fd, &priv->msg, 0, priv, fastd_send_callback_second);
+			return;
 #else
 			ret = sendmsg(priv->fd.fd, &priv->msg, 0);
 #endif
 		}
 	}
-	
+
+	fastd_buffer_free(priv->buffer);
+
+	#ifdef HAVE_LIBURING
+		free(priv);
+	#endif
+
 #ifdef HAVE_LIBURING
 }
 
