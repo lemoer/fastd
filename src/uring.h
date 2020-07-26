@@ -15,8 +15,8 @@ typedef enum fastd_poll_uring_type {
 } fastd_uring_action_t;
 
 struct fastd_uring_priv {
-	fastd_uring_action_t action;
 	fastd_poll_fd_t *fd;
+	fastd_uring_action_t action;
 	void (*caller_func)(ssize_t, void *);
 	void *caller_priv;
 };
