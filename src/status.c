@@ -221,7 +221,6 @@ void fastd_status_init(void) {
 	if (ctx.status_fd.fd < 0)
 		exit_errno("fastd_status_init: socket");
 
-
 	size_t status_socket_len = strlen(conf.status_socket);
 	size_t len = offsetof(struct sockaddr_un, sun_path) + status_socket_len + 1;
 	uint8_t buf[len] __attribute__((aligned(__alignof__(struct sockaddr_un))));

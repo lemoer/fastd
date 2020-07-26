@@ -27,12 +27,6 @@ typedef struct fastd_async_hdr {
 /** Initializes the async notification sockets */
 void fastd_async_init(void) {
 	int fds[2];
-#ifdef HAVE_LIBURING
-	/* for uring we need blocking reads */
-	/* use socketpair with SOCK_DGRAM instead of pipe2 with O_DIRECT to keep this portable */
-	if (socketpair(AF_UNIX, SOCK_DGRAM, 0, fds))
-		exit_errno("socketpair");
-#else
 	/* use socketpair with SOCK_DGRAM instead of pipe2 with O_DIRECT to keep this portable */
 	if (socketpair(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK, 0, fds))
 		exit_errno("socketpair");
@@ -40,7 +34,6 @@ void fastd_async_init(void) {
 #ifdef NO_HAVE_SOCK_NONBLOCK
 	fastd_setnonblock(fds[0]);
 	fastd_setnonblock(fds[1]);
-#endif
 #endif
 	ctx.async_rfd = FASTD_POLL_FD(POLL_TYPE_ASYNC, fds[0]);
 	ctx.async_wfd = fds[1];
@@ -128,8 +121,7 @@ void fastd_async_handle_callback_first(ssize_t ret, void *p) {
 	if (ret < 0) {
 		pr_debug("async fail");
 		free(priv);
-		//exit_errno("fastd_async_handle: recvmsg");
-		return;
+		exit_errno("fastd_async_handle: recvmsg");
 	}
 	
 
@@ -212,6 +204,7 @@ void fastd_async_enqueue(fastd_async_type_t type, const void *data, size_t len) 
 }
 
 void fastd_async_enqueue_callback(ssize_t ret, void *p) {
+	free(p);
 #endif
 	if (ret < 0)
 		pr_warn_errno("fastd_async_enqueue: sendmsg");
