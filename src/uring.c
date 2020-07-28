@@ -321,20 +321,23 @@ static inline void uring_sqe_input(fastd_poll_fd_t *fd) {
 			uring_debug("iface handle \n");
 			fastd_iface_t *iface = container_of(fd, fastd_iface_t, fd);
 
+			if (ctx.uring_read_num > 1){
+				ctx.uring_read_num--;
+				return;
+			}
 
-			uring_link_counter_decrease(ctx.uring_read_num, URING_READ_NUM) {
+			ctx.uring_sqe_must_link = true;
+			for(int i = 1; i < URING_READ_NUM; i++) {
 				uring_debug("creating linked iface read %i", ctx.uring_read_num);
 				fastd_iface_handle(iface);
 			}
-			
-			if(ctx.uring_sqe_must_link) {
-				mustsubmit = true;
-				/* we need to close the SQE link chain */
-				ctx.uring_sqe_must_link = false;
-				fastd_iface_handle(iface);
-				uring_read_flags = 0;
-			}
 
+			mustsubmit = true;
+			ctx.uring_sqe_must_link = false;
+			fastd_iface_handle(iface);
+			uring_read_flags = 0;
+
+			ctx.uring_read_num = URING_READ_NUM;
 
 			break;
 		}
@@ -345,7 +348,7 @@ static inline void uring_sqe_input(fastd_poll_fd_t *fd) {
 			uring_link_counter_decrease(ctx.uring_recvmsg_num, URING_RECVMSG_NUM) {
 				uring_debug("creating linked socket recvmsg %i", ctx.uring_recvmsg_num);
 				fastd_receive(sock);
-				
+
 				/* When setting up multiple recvmsgs, we only want the first
 				 * one to do polling. The following in the chain
 				 * must not block the result, thus they must fail if no data
@@ -393,7 +396,7 @@ static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 
 	uring_debug("priv %p\n", priv);
 	uring_debug("fd type %i\n", priv->fd->type);
-	
+
 	if (priv->fd->type == POLL_TYPE_ASYNC) {
 		fastd_async_handle();
 		uring_sqe_input(priv->fd);
@@ -407,7 +410,7 @@ static inline void uring_cqe_handle(struct io_uring_cqe *cqe) {
 
 	priv->caller_func(cqe->res, priv->caller_priv);
 	uring_debug("uring callback called\n");
-	
+
 	if (priv->action == URING_OUTPUT)
 		goto free;
 
@@ -538,7 +541,7 @@ static struct io_uring_cqe *uring_get_cqe() {
 		    exit_bug("io_uring_wait_cqe");
 		}
 	}
-	
+
 	uring_cqe_count = io_uring_peek_batch_cqe(&ctx.uring, uring_cqes, sizeof(uring_cqes) / sizeof(uring_cqes[0]));
 
 	if(uring_cqe_count == 0) {
@@ -561,7 +564,7 @@ void fastd_uring_handle(void) {
 	uring_debug("fastd_uring_handle() time remaining %i", timeout);
 
         uring_submit_timeout_add(timeout);
-        
+
 	while(1) {
 		cqe = uring_get_cqe();
 		if(!time_updated) {
@@ -575,7 +578,7 @@ void fastd_uring_handle(void) {
 			has_timeout = true;
 			break;
 		}
-		
+
 		if(cqe->user_data)
 			uring_cqe_handle(cqe);
 	}
@@ -586,7 +589,7 @@ void fastd_uring_handle(void) {
 		exit_bug("no_timeout");
 		uring_submit_timeout_remove();
 	}
-	
+
 	/* SQEs will otherwise be submitted on the next call
 	 * to save a syscall
 	 */
@@ -664,7 +667,7 @@ void fastd_uring_free(void) {
 	/* TODO: Find out if it triggers error cqes and if our privs get freed */
 	/* TODO: If a file subscriptr was fixed, unregister*/
 	/* TODO create a NOP with flag IOSQE_IO_DRAIN and cancel any new submissions */
-	
+
 	/* TODO Check on return value*/
 	io_uring_unregister_files(&ctx.uring);
 	io_uring_queue_exit(&ctx.uring);
