@@ -39,7 +39,7 @@
  * because we expect these operations to always succeed and
  * don't want to be woken up then. */
 int uring_output_cnt;
-
+bool dosubmit;
 bool mustsubmit;
 int uring_read_flags;
 int uring_recvmsg_flags;
@@ -79,7 +79,8 @@ static int uring_submit(void) {
 	} else {
 		uring_debug("submitted %i SQEs", ret);
 	}
-	
+	dosubmit = false;
+	mustsubmit = false;
 	if(ret == 0) {
 		exit_bug("submit without CQEs");
 	}
@@ -113,10 +114,8 @@ static inline void uring_submit_priv(struct io_uring_sqe *sqe, struct fastd_urin
 	uring_debug("setting data pointer %p\n", priv);
 	io_uring_sqe_set_data(sqe, priv);
 
-	if(mustsubmit) {
-		mustsubmit = false;
+	if(mustsubmit)
 		uring_submit();
-	}
 }
 
 static inline struct io_uring_sqe *uring_get_sqe() {
@@ -206,7 +205,7 @@ void fastd_uring_sendmsg(fastd_poll_fd_t *fd, const struct msghdr *msg, int flag
 
 	io_uring_prep_sendmsg(sqe, fd->uring_idx, msg, flags);
 	//io_uring_sqe_set_flags(sqe, IOSQE_ASYNC); used for blocking devices
-	mustsubmit = true;
+	dosubmit = true;
 	uring_submit_priv(sqe, priv, IOSQE_FIXED_FILE);
 }
 
@@ -528,6 +527,9 @@ static struct io_uring_cqe *uring_get_cqe() {
 
 	io_uring_cq_advance(&ctx.uring, uring_cqe_count);
 
+	if (dosubmit)
+		uring_submit();
+
 	if (io_uring_cq_ready(&ctx.uring) == 0) {
 		int ret = io_uring_wait_cqe_nr(&ctx.uring, &cqe, uring_output_cnt + 1);
 		pr_debug("URINGENTER");
@@ -612,6 +614,7 @@ void fastd_uring_init(void) {
 	uring_read_flags = 0;
 	uring_cqe_count = 0;
 	uring_cqe_pos = 0;
+	dosubmit= false;
 	ctx.func_recvmsg = fastd_uring_recvmsg;
 	ctx.func_sendmsg = fastd_uring_sendmsg;
 	ctx.func_read = fastd_uring_read;
