@@ -29,11 +29,11 @@
 #include "fastd.h"
 
 
-#define MAX_URING_SIZE 512		/**/
+#define MAX_URING_SIZE 256		/**/
 #define FASTD_URING_TIMEOUT	((__u64) -1234)
 
-#define URING_RECVMSG_NUM	4	/**/
-#define URING_READ_NUM		4	/**/
+#define URING_RECVMSG_NUM	64	/**/
+#define URING_READ_NUM		64	/**/
 
 /* we count the number of sent/write submissions pending,
  * because we expect these operations to always succeed and
@@ -113,11 +113,10 @@ static inline void uring_submit_priv(struct io_uring_sqe *sqe, struct fastd_urin
 	uring_debug("setting data pointer %p\n", priv);
 	io_uring_sqe_set_data(sqe, priv);
 
-	mustsubmit = true;
-	/*if(mustsubmit) {
+	if(mustsubmit) {
 		mustsubmit = false;
 		uring_submit();
-	}*/
+	}
 }
 
 static inline struct io_uring_sqe *uring_get_sqe() {
@@ -176,6 +175,7 @@ void fastd_uring_accept(fastd_poll_fd_t *fd, struct sockaddr *addr, socklen_t *a
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_INPUT, data, cb);
 
 	io_uring_prep_accept(sqe, fd->uring_idx, addr, addrlen, 0);
+	mustsubmit = true;
 	uring_submit_priv(sqe, priv, IOSQE_FIXED_FILE);
 }
 
@@ -206,7 +206,7 @@ void fastd_uring_sendmsg(fastd_poll_fd_t *fd, const struct msghdr *msg, int flag
 
 	io_uring_prep_sendmsg(sqe, fd->uring_idx, msg, flags);
 	//io_uring_sqe_set_flags(sqe, IOSQE_ASYNC); used for blocking devices
-
+	mustsubmit = true;
 	uring_submit_priv(sqe, priv, IOSQE_FIXED_FILE);
 }
 
@@ -231,6 +231,7 @@ void fastd_uring_write_unsupported(fastd_poll_fd_t *fd, const void *buf, size_t 
 void fastd_uring_write(fastd_poll_fd_t *fd, const void *buf, size_t count, void *data, void (*cb)(ssize_t, void *)) {
 	struct io_uring_sqe *sqe = uring_get_sqe();
 	struct fastd_uring_priv *priv = uring_priv_new(fd, URING_OUTPUT, data, cb);
+	mustsubmit = true;
 
 	io_uring_prep_write(sqe, fd->uring_idx, buf, count, 0);
 	uring_submit_priv(sqe, priv, IOSQE_FIXED_FILE);
@@ -238,14 +239,14 @@ void fastd_uring_write(fastd_poll_fd_t *fd, const void *buf, size_t count, void 
 
 void uring_poll_add(fastd_poll_fd_t *fd, short poll_mask) {
 	struct io_uring_sqe *sqe = uring_get_sqe();
-
+	mustsubmit = true;
 	io_uring_prep_poll_add(sqe, fd->fd, poll_mask);
 	uring_submit_priv(sqe, (struct fastd_uring_priv *)&fd, 0);
 }
 
 void uring_poll_remove(fastd_poll_fd_t *fd) {
 	struct io_uring_sqe *sqe = uring_get_sqe();
-
+	mustsubmit = true;
 	io_uring_prep_poll_remove(sqe, &fd);
 	uring_submit_priv(sqe, (struct fastd_uring_priv *)&fd, 0);
 }
@@ -310,35 +311,58 @@ static inline int uring_is_supported() {
 }
 
 #define uring_link_counter_decrease(cnt, num) \
-	if(cnt > 1) { cnt--; } else { cnt = num; ctx.uring_sqe_must_link = true;} \
+	if(cnt > 1) { cnt--; } else { cnt = num; ctx.uring_sqe_must_link = true; } \
 	for(int __link_counter = 1; cnt == num && __link_counter < num; __link_counter++)
 
-fastd_iface_t *uring_iface;
-fastd_socket_t *uring_sock;
 /* creates a new URING_INPUT submission */
 static inline void uring_sqe_input(fastd_poll_fd_t *fd) {
 	uring_debug("sqe input for fd=%i type=%i", fd->fd, fd->type);
 	switch(fd->type) {
 	case POLL_TYPE_IFACE: {
 			uring_debug("iface handle \n");
-			uring_iface = container_of(fd, fastd_iface_t, fd);
+			fastd_iface_t *iface = container_of(fd, fastd_iface_t, fd);
 
-			if(ctx.uring_read_num > 1)
-				ctx.uring_read_num--;
+
+			uring_link_counter_decrease(ctx.uring_read_num, URING_READ_NUM) {
+				uring_debug("creating linked iface read %i", ctx.uring_read_num);
+				fastd_iface_handle(iface);
+			}
+			
+			if(ctx.uring_sqe_must_link) {
+				mustsubmit = true;
+				/* we need to close the SQE link chain */
+				ctx.uring_sqe_must_link = false;
+				fastd_iface_handle(iface);
+				uring_read_flags = 0;
+			}
+
 
 			break;
 		}
 	case POLL_TYPE_SOCKET: {
-			/* IDEA: When setting up multiple recvmsgs, we only want the first
-			 * one to do polling. The following in the chain
-			 * must not block the result, thus they must fail if no data
-			 * is available. We achieve this by setting the MSG_DONTWAIT
-			 * flag for all but the first recvmsgs in a chain */
 			uring_debug("socket handle \n");
-			uring_sock = container_of(fd, fastd_socket_t, fd);
+			fastd_socket_t *sock = container_of(fd, fastd_socket_t, fd);
 
-			if(ctx.uring_recvmsg_num > 1)
-				ctx.uring_recvmsg_num--;
+			uring_link_counter_decrease(ctx.uring_recvmsg_num, URING_RECVMSG_NUM) {
+				uring_debug("creating linked socket recvmsg %i", ctx.uring_recvmsg_num);
+				fastd_receive(sock);
+				
+				/* When setting up multiple recvmsgs, we only want the first
+				 * one to do polling. The following in the chain
+				 * must not block the result, thus they must fail if no data
+				 * is available. We achieve this by setting the MSG_DONTWAIT
+				 * flag for all but the first recvmsgs in a chain */
+				uring_recvmsg_flags = MSG_DONTWAIT;
+			}
+
+			if(ctx.uring_sqe_must_link) {
+				mustsubmit = true;
+				/* we need to close the SQE link chain */
+				ctx.uring_sqe_must_link = false;
+				fastd_receive(sock);
+				uring_recvmsg_flags = 0;
+			}
+
 
 			break;
 		}
@@ -478,7 +502,8 @@ static inline void uring_submit_timeout_add(int timeout) {
 
 	io_uring_prep_timeout(sqe, &ts, 0, 0);
 	sqe->user_data = FASTD_URING_TIMEOUT;
-	mustsubmit = true;
+
+	uring_submit();
 }
 
 static inline void uring_submit_timeout_remove() {
@@ -495,7 +520,6 @@ int uring_cqe_count;
 int uring_cqe_pos;
 static struct io_uring_cqe *uring_get_cqe() {
 	struct io_uring_cqe *cqe;
-	int ret;
 	uring_cqe_pos++;
 
 	if(uring_cqe_pos < uring_cqe_count) {
@@ -504,63 +528,12 @@ static struct io_uring_cqe *uring_get_cqe() {
 
 	io_uring_cq_advance(&ctx.uring, uring_cqe_count);
 
-	int ready = io_uring_cq_ready(&ctx.uring);
-	int wait_count = uring_output_cnt + 1 - ready;
-	
-	if (wait_count < 0)
-		wait_count = 0;
-	
-	/* Reads should be positioned at the end of a submit */
-	
-	if(mustsubmit && (ctx.uring_read_num == 1 || ctx.uring_recvmsg_num == 1)) {
-		uring_submit();
-	}
-	
-	if(ctx.uring_read_num == 1) {
-		ctx.uring_sqe_must_link = true;
-		for(int i = 1; i < URING_READ_NUM; i++) {
-			uring_debug("creating linked iface read %i", ctx.uring_read_num);
-			fastd_iface_handle(uring_iface);
-		}
-
-		/* we need to close the SQE link chain */
-		ctx.uring_sqe_must_link = false;
-		fastd_iface_handle(uring_iface);
-		mustsubmit = true;
-		ctx.uring_read_num = URING_READ_NUM;
-	}
-	
-	if(ctx.uring_recvmsg_num == 1) {
-		ctx.uring_sqe_must_link = true;
-		for(int i = 1; i < URING_RECVMSG_NUM; i++) {
-			uring_debug("creating linked socket recvmsg %i", ctx.uring_recvmsg_num);
-			fastd_receive(uring_sock);
-		}
-
-		/* we need to close the SQE link chain */
-		ctx.uring_sqe_must_link = false;
-		fastd_receive(uring_sock);
-		mustsubmit = true;
-		ctx.uring_recvmsg_num = URING_RECVMSG_NUM;
-	}
-
-	if(mustsubmit) {
-		uring_debug("submit_wait ready=%i wait=%i output=%i", ready, wait_count, uring_output_cnt);
-		ret = io_uring_submit_and_wait(&ctx.uring, 1);
-		uring_debug("submitted %i SQEs", ret);
-		mustsubmit = false;
-		if (ret < 1)
-			exit_bug("submit_without_entry");
-	}
-
 	if (io_uring_cq_ready(&ctx.uring) == 0) {
-		uring_debug("URINGENTER");
- 
-		ret = io_uring_wait_cqe_nr(&ctx.uring, &cqe, uring_output_cnt + 1);
+		int ret = io_uring_wait_cqe_nr(&ctx.uring, &cqe, uring_output_cnt + 1);
+		pr_debug("URINGENTER");
 		if (ret != 0) {
 		    uring_debug("io_uring_wait_cqe ret=%i\n", ret);
 		    exit_bug("io_uring_wait_cqe");
-
 		}
 	}
 	
@@ -583,18 +556,16 @@ void fastd_uring_handle(void) {
 	bool has_timeout = false;
 	bool time_updated = false;
 
-
 	uring_debug("fastd_uring_handle() time remaining %i", timeout);
 
         uring_submit_timeout_add(timeout);
-
+        
 	while(1) {
 		cqe = uring_get_cqe();
 		if(!time_updated) {
-		        fastd_update_time();
-		        time_updated = true;
+			fastd_update_time();
+			time_updated = true;
 		}
-
 		uring_debug("ready %i/%i %i", uring_cqe_pos, uring_cqe_count, uring_output_cnt);
 		count++;
 		if (cqe->user_data == FASTD_URING_TIMEOUT) {
@@ -606,8 +577,6 @@ void fastd_uring_handle(void) {
 		if(cqe->user_data)
 			uring_cqe_handle(cqe);
 	}
-
-
 
 	uring_debug("HANDLED %i CQEs", count_total);
 
