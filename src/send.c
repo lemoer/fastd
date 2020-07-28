@@ -158,7 +158,7 @@ static void send_type(
 void fastd_send_callback_second(ssize_t ret, void *p);
 
 void fastd_send_callback_first(ssize_t ret, void *p) {
-pr_debug("send type callback first");
+	uring_debug("send type callback first");
 	struct send_priv *priv = p;
 #endif
 	if (ret < 0 && priv->msg.msg_controllen) {

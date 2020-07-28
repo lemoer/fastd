@@ -431,7 +431,6 @@ void fastd_iface_handle(fastd_iface_t *iface) {
 void fastd_iface_handle_callback(ssize_t len, void *p) {
 	struct iface_priv *priv = p;
 #endif
-	pr_debug("iface read callback \n");
 	if (len < 0) {
 		pr_debug("read callback error");
 		goto free;
@@ -461,7 +460,7 @@ void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {
 		pr_debug("fastd_iface_write: truncated packet");
 		return;
 	}
-	pr_debug("iface write \n");
+
 	if (multiaf_tun && get_iface_type() == IFACE_TYPE_TUN) {
 		uint8_t version = *((uint8_t *)buffer.data) >> 4;
 		uint32_t af;
@@ -490,14 +489,13 @@ void fastd_iface_write(fastd_iface_t *iface, fastd_buffer_t buffer) {
 
 #else
 	ctx.func_write(&iface->fd, buffer.data, buffer.len, NULL, fastd_iface_write_callback);
-	pr_debug("iface write end\n");
 }
 
 void fastd_iface_write_callback(ssize_t ret, void *p) {
 	if (ret < 0)
 		pr_debug2_errno("write");
 	else
-		pr_debug("fastd_iface_write_callback() successful");
+		uring_debug("fastd_iface_write_callback() successful");
 #endif
 }
 
